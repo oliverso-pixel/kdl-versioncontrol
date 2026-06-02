@@ -76,12 +76,6 @@ class ApiService {
     });
   }
 
-  // async deleteApplication(appId) {
-  //   return this.request(`/api/admin/applications/${appId}`, {
-  //     method: 'DELETE',
-  //   });
-  // }
-
   async deleteApplication(appId, permanent = false) {
     return this.request(`/api/admin/applications/${appId}?permanent=${permanent}`, {
       method: 'DELETE',
@@ -110,12 +104,6 @@ class ApiService {
       body: JSON.stringify(branchData),
     });
   }
-
-  // async deleteBranch(branchId) {
-  //   return this.request(`/api/admin/branches/${branchId}`, {
-  //     method: 'DELETE',
-  //   });
-  // }
 
   async deleteBranch(branchId, permanent = false) {
     return this.request(`/api/admin/branches/${branchId}?permanent=${permanent}`, {
@@ -219,12 +207,6 @@ class ApiService {
     }
   }
 
-  // async deleteVersion(versionId) {
-  //   return this.request(`/api/admin/versions/${versionId}`, {
-  //     method: 'DELETE',
-  //   });
-  // }
-
   async deleteVersion(versionId, permanent = false, deleteFile = false) {
     return this.request(`/api/admin/versions/${versionId}?permanent=${permanent}&delete_file=${deleteFile}`, {
       method: 'DELETE',
@@ -293,24 +275,6 @@ class ApiService {
     });
   }
 
-  // Device management
-  // async getDevices(filters = {}) {
-  //   const params = new URLSearchParams();
-  //   Object.keys(filters).forEach(key => {
-  //     if (filters[key]) params.append(key, filters[key]);
-  //   });
-    
-  //   let query = '/api/admin/devices';
-  //   if (params.toString()) {
-  //     query += `?${params.toString()}`;
-  //   }
-    
-  //   return this.request(query);
-  // }
-
-  // async getDeviceDetails(deviceId) {
-  //   return this.request(`/api/admin/devices/${deviceId}`);
-  // }
   async createDevice(deviceData) {
     return this.request('/api/admin/devices', {
       method: 'POST',
@@ -342,6 +306,13 @@ class ApiService {
   async activateDevice(deviceId) {
     return this.request(`/api/admin/devices/${deviceId}/activate`, {
       method: 'POST',
+    });
+  }
+
+  async sendDeviceCommand(androidId, commandPayload) {
+    return this.request(`/api/v2/admin/devices/${androidId}/command`, {
+      method: 'POST',
+      body: JSON.stringify(commandPayload),
     });
   }
 

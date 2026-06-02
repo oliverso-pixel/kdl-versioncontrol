@@ -258,6 +258,21 @@ const resetAndFetchDevices = useCallback(async () => {
     return <div className="text-center py-12">載入中...</div>;
   }
 
+  const handleRemoteCommand = async (action, target_app = null, extraData = {}) => {
+    if (!selectedDevice?.android_id) return;
+    
+    if (!window.confirm(`確定要對設備發送 [${action}] 指令嗎？`)) return;
+
+    try {
+      const payload = { action, target_app, ...extraData };
+      await api.sendDeviceCommand(selectedDevice.android_id, payload);
+      alert('指令發送成功！');
+    } catch (err) {
+      console.error('Command failed:', err);
+      alert('指令發送失敗，設備可能離線。');
+    }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -792,6 +807,30 @@ const resetAndFetchDevices = useCallback(async () => {
                         : '無記錄'} */}
                       {formatDateTime(selectedDevice.last_check_time)}
                     </dd>
+                  </div>
+                </div>
+
+                <div className="mb-6 mt-6 border-t pt-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">遠端控制 (v2)</h4>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleRemoteCommand('reboot')}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700"
+                    >
+                      重啟設備 (Reboot)
+                    </button>
+                    <button
+                      onClick={() => handleRemoteCommand('fetch_logs', 'com.example.appA')}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+                    >
+                      獲取 App A 日誌
+                    </button>
+                    <button
+                      onClick={() => handleRemoteCommand('push_notification', 'com.example.appB', { msg: "系統即將更新" })}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-purple-600 hover:bg-purple-700"
+                    >
+                      發送通知給 App B
+                    </button>
                   </div>
                 </div>
                 
