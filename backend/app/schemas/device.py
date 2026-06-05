@@ -29,6 +29,11 @@ class Device(DeviceBase):
     additional_info: Optional[str] = None
     notes: Optional[str] = None
     is_active: bool
+    device_api_key: Optional[str] = None
+    is_online: Optional[bool] = False
+    battery_level: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
@@ -39,3 +44,4 @@ class DeviceWithLogs(Device):
     recent_logs: Optional[list] = []
     total_checks: int = 0
     last_version: Optional[str] = None
+    installed_apps: Optional[list] = []

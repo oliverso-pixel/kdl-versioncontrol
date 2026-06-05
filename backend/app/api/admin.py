@@ -102,28 +102,6 @@ async def update_application(
     logger.info(f"Updated application: {app.app_id}")
     return app
 
-# @router.delete("/applications/{app_id}")
-# async def delete_application(
-#     app_id: int,
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Delete application (soft delete)"""
-#     app = db.query(Application).filter(Application.id == app_id).first()
-    
-#     if not app:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Application not found"
-#         )
-    
-#     app.is_active = False
-#     app.updated_at = datetime.utcnow()
-#     db.commit()
-    
-#     logger.info(f"Deleted application: {app.app_id}")
-#     return {"message": "Application deleted successfully"}
-
 @router.delete("/applications/{app_id}")
 async def delete_application(
     app_id: int,
@@ -245,26 +223,6 @@ async def update_branch(
     db.refresh(branch)
     
     return branch
-
-# @router.delete("/branches/{branch_id}")
-# async def delete_branch(
-#     branch_id: int,
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Delete branch (soft delete)"""
-#     branch = db.query(Branch).filter(Branch.id == branch_id).first()
-    
-#     if not branch:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Branch not found"
-#         )
-    
-#     branch.is_active = False
-#     db.commit()
-    
-#     return {"message": "Branch deleted successfully"}
 
 @router.delete("/branches/{branch_id}")
 async def delete_branch(
@@ -493,50 +451,6 @@ async def delete_version(
         logger.info(f"Soft deleted version: {version.version_name}")
         return {"message": "Version deactivated"}
 
-# Device Management
-# @router.get("/devices", response_model=List[DeviceSchema])
-# async def list_devices(
-#     app_id: Optional[str] = None,
-#     days: int = Query(7, ge=1, le=90),
-#     skip: int = Query(0, ge=0),
-#     limit: int = Query(100, ge=1, le=1000),
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """List devices that checked for updates recently"""
-#     since_date = datetime.utcnow() - timedelta(days=days)
-    
-#     query = db.query(Device).filter(
-#         Device.last_check_time >= since_date
-#     )
-    
-#     devices = query.order_by(Device.last_check_time.desc()).offset(skip).limit(limit).all()
-#     return devices
-
-# @router.get("/devices/{device_id}")
-# async def get_device_details(
-#     device_id: int,
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Get device details with update history"""
-#     device = db.query(Device).filter(Device.id == device_id).first()
-    
-#     if not device:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Device not found"
-#         )
-    
-#     # Get recent update logs
-#     logs = db.query(UpdateLog).filter(
-#         UpdateLog.device_id == device_id
-#     ).order_by(UpdateLog.created_at.desc()).limit(10).all()
-    
-#     return {
-#         "device": device,
-#         "update_logs": logs
-#     }
 @router.get("/devices/{device_id}")
 async def get_device_details(
     device_id: int,
@@ -589,21 +503,6 @@ async def get_device_details(
                 "created_at": log.created_at
             } for log in logs
         ]
-    
-        
-    # device_all = db.query(Device).filter(Device.id == device_id).all()
-    
-    # apps_queries = []
-    # for device in device_all:
-    #     note = device.notes  # 這是 app_id
-    #     app_ver = device.app_version
-    #     application = db.query(
-    #     Application.id,
-    #     Application.app_id,
-    #     Application.name.label('app_name')
-    #     ).filter(Application.app_id == note).first()
-
-    #     apps_queries = apps_queries.append([application, note, app_ver])
     
     if include_apps:
         # 獲取設備上的應用程式資訊
