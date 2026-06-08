@@ -13,6 +13,7 @@ from .api import auth, version_check, admin, websocket, statistics, database_mgm
 from .api.v2 import websocket as v2_websocket
 from .api.v2 import version_check as v2_version_check
 from .api.v2 import mdm as v2_mdm
+from .api.v2 import auth as v2_auth, users as v2_users
 from .core.utils import ensure_directory_exists, setup_logging
 
 # Setup logging
@@ -74,6 +75,9 @@ app.include_router(settings_api.router, tags=["System Settings"])
 app.include_router(v2_mdm.router, prefix="/api/v2")
 app.include_router(v2_version_check.router, prefix="/api/v2", tags=["Version Check (V2)"])
 app.include_router(v2_websocket.router, prefix="/api/v2", tags=["WebSocket (V2)"])
+
+app.include_router(v2_auth.router, prefix="/api/v2")
+app.include_router(v2_users.router, prefix="/api/v2")
 
 # Serve APK files
 @app.get("/api/download/{app_id}/{branch}/{filename}")

@@ -5,6 +5,7 @@ from .device import Device
 from .update_log import UpdateLog
 from .api_key import ApiKey
 from .system_setting import SystemSetting
+from .admin_user import AdminUser
 
 __all__ = [
     "Application", 
@@ -13,5 +14,6 @@ __all__ = [
     "Device", 
     "UpdateLog",
     "ApiKey",
-    "SystemSetting"
+    "SystemSetting",
+    "AdminUser"
 ]

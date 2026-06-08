@@ -228,6 +228,34 @@ class ApiService {
     return this.request(query);
   }
 
+  // V2 Login (Username + Password)
+  async loginV2(username, password) {
+    const formData = new URLSearchParams();
+    formData.append('username', username);
+    formData.append('password', password);
+
+    const response = await fetch(`${API_BASE}/api/v2/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData,
+    });
+    
+    if (!response.ok) throw new Error('登入失敗');
+    const data = await response.json();
+    this.setToken(data.access_token);
+    localStorage.setItem('apiMode', 'v2');
+    return data;
+  }
+
+  // Users Management V2
+  async getUsers() { return this.request('/api/v2/admin/users'); }
+  async createUser(data) { return this.request('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }); }
+  async deleteUser(userId) { return this.request(`/api/v2/admin/users/${userId}`, { method: 'DELETE' }); }
+
+  // Store Management V2
+  async getStoreApps() { return this.request('/api/v2/admin/store/apps'); }
+  async getStoreAppDetails(appId) { return this.request(`/api/v2/admin/store/apps/${appId}/details`); }
+
   // System settings
   async getSystemSettings() {
     return this.request('/api/admin/settings');

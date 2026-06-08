@@ -344,3 +344,106 @@ async def get_store_app_details(
         app_data["branches"].append(branch_info)
         
     return {"status": "success", "data": app_data}
+
+# ----------------- Admin Web Panel Store Endpoints ----------------- #
+
+@router.get("/admin/store/apps")
+async def get_admin_store_apps(
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token)  # 使用 JWT Token 驗證
+):
+    """
+    [Web Panel] 獲取應用程式商城首頁 (所有 App 列表)
+    提供給 Web Panel 使用，透過 JWT Token 驗證。
+    """
+    apps = db.query(Application).filter(Application.is_active == True).all()
+    
+    result = []
+    for app in apps:
+        query = text("""
+            SELECT branch_name, version_name, version_code 
+            FROM latest_versions 
+            WHERE app_id = :app_id
+        """)
+        latest_v = db.execute(query, {"app_id": app.app_id}).fetchall()
+        
+        result.append({
+            "app_id": app.app_id,
+            "name": app.name,
+            "description": app.description,
+            "branches_summary": [
+                {
+                    "branch_name": row.branch_name, 
+                    "version_name": row.version_name, 
+                    "version_code": row.version_code
+                } for row in latest_v
+            ]
+        })
+        
+    return {"status": "success", "data": result}
+
+@router.get("/admin/store/apps/{app_id}/details")
+async def get_admin_store_app_details(
+    app_id: str,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token)  # 使用 JWT Token 驗證
+):
+    """
+    [Web Panel] 取得單一 App 的詳細資訊
+    提供給 Web Panel 使用，透過 JWT Token 驗證。
+    """
+    app = db.query(Application).filter(
+        Application.app_id == app_id, 
+        Application.is_active == True
+    ).first()
+    
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+        
+    branches = db.query(Branch).filter(
+        Branch.application_id == app.id, 
+        Branch.is_active == True
+    ).all()
+    
+    app_data = {
+        "app_id": app.app_id,
+        "name": app.name,
+        "description": app.description,
+        "branches": []
+    }
+    
+    for b in branches:
+        versions = db.query(Version).filter(
+            Version.branch_id == b.id, 
+            Version.is_active == True
+        ).order_by(Version.version_code.desc()).all()
+        
+        if not versions:
+            continue
+            
+        latest_version = versions[0]
+        
+        branch_info = {
+            "branch_name": b.branch_name,
+            "description": b.description,
+            "latest_version": {
+                "version_code": latest_version.version_code,
+                "version_name": latest_version.version_name,
+                "download_url": latest_version.apk_download_url,
+                "release_notes": latest_version.release_notes,
+                "file_size": latest_version.file_size,
+                "force_update": latest_version.force_update,
+                "created_at": latest_version.created_at.isoformat()
+            },
+            "version_history": [
+                {
+                    "version_code": v.version_code,
+                    "version_name": v.version_name,
+                    "release_notes": v.release_notes,
+                    "created_at": v.created_at.isoformat()
+                } for v in versions
+            ]
+        }
+        app_data["branches"].append(branch_info)
+        
+    return {"status": "success", "data": app_data}

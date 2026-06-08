@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Home, Package, GitBranch, Smartphone, 
+  Home, Package, GitBranch, Smartphone, Users,
   FileText, Settings, LogOut, Menu, Bell
 } from 'lucide-react';
 import Login from './components/Auth/Login';
@@ -12,6 +12,9 @@ import DeviceMonitoring from './components/Devices/DeviceMonitoring';
 import UpdateLogs from './components/Logs/UpdateLogs';
 import SystemSettings from './components/Settings/SystemSettings';
 import NotificationCenter from './components/Notifications/NotificationCenter';
+import StoreManagement from './components/v2/StoreManagement';
+import DeviceMonitoringV2 from './components/v2/DeviceMonitoringV2';
+import UserManagement from './components/v2/UserManagement';
 import './App.css';
 
 function App() {
@@ -19,6 +22,7 @@ function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [apiMode, setApiMode] = useState(localStorage.getItem('apiMode') || 'v1');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -27,8 +31,9 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (token) => {
+  const handleLogin = (token, mode) => {
     setIsAuthenticated(true);
+    setApiMode(mode);
   };
 
   const handleLogout = () => {
@@ -40,13 +45,28 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  const navigation = [
+  // const navigation = [
+  //   { name: '儀表板', icon: Home, view: 'dashboard' },
+  //   { name: '應用程式管理', icon: Package, view: 'applications' },
+  //   { name: '分支管理', icon: GitBranch, view: 'branches' },
+  //   { name: '版本管理', icon: GitBranch, view: 'versions' },
+  //   { name: '設備監控', icon: Smartphone, view: 'devices' },
+  //   { name: '更新日誌', icon: FileText, view: 'logs' },
+  //   { name: '系統設定', icon: Settings, view: 'settings' },
+  // ];
+
+  const navigation = apiMode === 'v1' ? [
     { name: '儀表板', icon: Home, view: 'dashboard' },
     { name: '應用程式管理', icon: Package, view: 'applications' },
     { name: '分支管理', icon: GitBranch, view: 'branches' },
     { name: '版本管理', icon: GitBranch, view: 'versions' },
     { name: '設備監控', icon: Smartphone, view: 'devices' },
-    { name: '更新日誌', icon: FileText, view: 'logs' },
+    { name: '系統設定', icon: Settings, view: 'settings' },
+  ] : [
+    { name: '儀表板', icon: Home, view: 'dashboard' },
+    { name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' },
+    { name: '設備監控 (V2)', icon: Smartphone, view: 'devices_v2' },
+    { name: '帳號管理', icon: Users, view: 'users_v2' },
     { name: '系統設定', icon: Settings, view: 'settings' },
   ];
 
@@ -66,6 +86,9 @@ function App() {
         return <UpdateLogs />;
       case 'settings':
         return <SystemSettings />;
+      case 'store_v2': return <StoreManagement />;
+      case 'devices_v2': return <DeviceMonitoringV2 />;
+      case 'users_v2': return <UserManagement />;
       default:
         return <Dashboard />;
     }
