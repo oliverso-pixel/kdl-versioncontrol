@@ -256,6 +256,19 @@ class ApiService {
   async getStoreApps() { return this.request('/api/v2/admin/store/apps'); }
   async getStoreAppDetails(appId) { return this.request(`/api/v2/admin/store/apps/${appId}/details`); }
 
+  // Device V2 APIs
+  async sendDeviceCommandV2(androidId, payload) {
+    return this.request(`/api/v2/admin/devices/${androidId}/command`, {
+      method: 'POST', body: JSON.stringify(payload)
+    });
+  }
+  async getDeviceInstalledApps(androidId) {
+    return this.request(`/api/v2/admin/devices/${androidId}/installed-apps`);
+  }
+  async getDeviceLocationHistory(androidId) {
+    return this.request(`/api/v2/admin/devices/${androidId}/location-history`);
+  }
+
   // System settings
   async getSystemSettings() {
     return this.request('/api/admin/settings');
@@ -311,6 +324,7 @@ class ApiService {
   }
 
   async getDevices(queryString = '') {
+    console.log(queryString);
     return this.request(`/api/admin/devices?${queryString}`);
   }
 

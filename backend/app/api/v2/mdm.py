@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
+from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
@@ -17,40 +18,106 @@ def generate_device_key():
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(32))
 
+class DeviceRegisterRequest(BaseModel):
+    android_id: str
+    device_model: str
+    os_version: str
+    hardware_id: Optional[str] = None
+    additional_info: Optional[Dict] = None
+
 # ----------------- HTTP Endpoints ----------------- #
 
 @router.post("/devices/register")
 async def register_device(
-    android_id: str,
-    device_model: str,
-    os_version: str,
+    payload: DeviceRegisterRequest,
     db: Session = Depends(get_db)
 ):
-    """1. 設備首次登記並取得專屬 API Key"""
-    device = db.query(Device).filter(Device.android_id == android_id).first()
+    """1. 設備首次登記 (防重複機制 + 儲存 additional_info)"""
+    device = None
     
-    if device and device.device_api_key:
-        raise HTTPException(status_code=400, detail="Device already registered. Reset required.")
+    # 將 dict 轉為 JSON 字串以便存入 TEXT 欄位
+    add_info_str = json.dumps(payload.additional_info) if payload.additional_info else None
+    
+    if payload.hardware_id:
+        device = db.query(Device).filter(Device.hardware_id == payload.hardware_id).first()
+        
+    if not device:
+        device = db.query(Device).filter(Device.android_id == payload.android_id).first()
     
     new_key = generate_device_key()
     
     if device:
+        # 裝置已存在 -> 更新資料
+        device.android_id = payload.android_id 
+        device.hardware_id = payload.hardware_id if payload.hardware_id else device.hardware_id
         device.device_api_key = new_key
-        device.device_model = device_model
-        device.os_version = os_version
+        device.device_model = payload.device_model
+        device.os_version = payload.os_version
+        
+        # 若有傳送新的 additional_info 則覆蓋更新
+        if add_info_str:
+            device.additional_info = add_info_str
+            
+        device.is_active = True
     else:
+        # 全新裝置 -> 寫入所有資料
         device = Device(
-            android_id=android_id,
-            device_model=device_model,
-            os_version=os_version,
-            app_version="1.0.0", # MDM App Version
-            notes="com.example.test", # 預設綁定的控制包名
-            device_api_key=new_key
+            android_id=payload.android_id,
+            hardware_id=payload.hardware_id,
+            device_model=payload.device_model,
+            os_version=payload.os_version,
+            app_version="1.0.0",
+            device_api_key=new_key,
+            additional_info=add_info_str  # 寫入 additional_info
         )
         db.add(device)
     
     db.commit()
-    return {"status": "success", "android_id": android_id, "api_key": new_key}
+    return {"status": "success", "android_id": payload.android_id, "api_key": new_key}
+
+# @router.post("/devices/register")
+# async def register_device(
+#     android_id: str,
+#     device_model: str,
+#     os_version: str,
+#     hardware_id: str = Query(None, description="IMEI 或 Hardware Serial Number (DO模式)"),
+#     db: Session = Depends(get_db)
+# ):
+#     """1. 設備首次登記 (防重複機制)"""
+#     device = None
+    
+#     # 優先使用實體硬體 ID 尋找裝置 (防重置)
+#     if hardware_id:
+#         device = db.query(Device).filter(Device.hardware_id == hardware_id).first()
+        
+#     # 退而求其次使用 android_id
+#     if not device:
+#         device = db.query(Device).filter(Device.android_id == android_id).first()
+    
+#     new_key = generate_device_key() # 重新產生綁定金鑰
+    
+#     if device:
+#         # 裝置已存在 -> 更新最新的 android_id 與 API Key，避免產生重複資料
+#         device.android_id = android_id 
+#         device.hardware_id = hardware_id if hardware_id else device.hardware_id
+#         device.device_api_key = new_key
+#         device.device_model = device_model
+#         device.os_version = os_version
+#         device.is_active = True
+#     else:
+#         # 全新實體裝置
+#         device = Device(
+#             android_id=android_id,
+#             hardware_id=hardware_id,
+#             device_model=device_model,
+#             os_version=os_version,
+#             app_version="1.0.0",
+#             device_api_key=new_key
+#         )
+#         db.add(device)
+    
+#     db.commit()
+#     return {"status": "success", "android_id": android_id, "api_key": new_key}
 
 # @router.get("/devices/{android_id}/managed-apps")
 # async def get_managed_apps(
@@ -203,7 +270,20 @@ async def device_websocket(
                 device.battery_level = message.get("battery")
                 device.latitude = message.get("lat")
                 device.longitude = message.get("lng")
-                device.last_check_time = datetime.utcnow()
+                device.last_check_time = datetime.utcnow() # 更新最後連線時間
+                
+                # 寫入歷史座標紀錄
+                if message.get("lat") and message.get("lng"):
+                    db.execute(text("""
+                        INSERT INTO device_location_history (device_id, latitude, longitude, battery_level)
+                        VALUES (:d_id, :lat, :lng, :bat)
+                    """), {
+                        "d_id": device.id, 
+                        "lat": message.get("lat"), 
+                        "lng": message.get("lng"), 
+                        "bat": message.get("battery")
+                    })
+                
                 db.commit()
                 
                 await websocket.send_json({
@@ -345,7 +425,8 @@ async def get_store_app_details(
         
     return {"status": "success", "data": app_data}
 
-# ----------------- Admin Web Panel Store Endpoints ----------------- #
+# ----------------- Admin Web Panel Endpoints ----------------- #
+# ----------------- Store ----------------- #
 
 @router.get("/admin/store/apps")
 async def get_admin_store_apps(
@@ -447,3 +528,35 @@ async def get_admin_store_app_details(
         app_data["branches"].append(branch_info)
         
     return {"status": "success", "data": app_data}
+
+# ----------------- installed-apps location-history ----------------- #
+
+@router.get("/admin/devices/{android_id}/installed-apps")
+async def get_device_installed_apps(android_id: str, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    query = text("""
+        SELECT a.app_id, a.name, dia.current_version_code, dia.installed_at 
+        FROM device_installed_apps dia
+        JOIN applications a ON dia.application_id = a.id
+        WHERE dia.device_id = :d_id
+    """)
+    apps = db.execute(query, {"d_id": device.id}).fetchall()
+    return [{"app_id": row.app_id, "name": row.name, "version_code": row.current_version_code, "installed_at": row.installed_at} for row in apps]
+
+@router.get("/admin/devices/{android_id}/location-history")
+async def get_device_location_history(android_id: str, limit: int = 50, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    query = text("""
+        SELECT latitude, longitude, battery_level, created_at 
+        FROM device_location_history 
+        WHERE device_id = :d_id 
+        ORDER BY created_at DESC LIMIT :limit
+    """)
+    history = db.execute(query, {"d_id": device.id, "limit": limit}).fetchall()
+    return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.created_at} for row in history]

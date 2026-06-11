@@ -9,6 +9,8 @@ class Device(Base):
     id = Column(Integer, primary_key=True, index=True)
     android_id = Column(String(100), unique=True, index=True, nullable=False)
 
+    hardware_id = Column(String(100), unique=True, nullable=True)
+
     device_api_key = Column(String(100), unique=True, nullable=True)
 
     device_model = Column(String(200))

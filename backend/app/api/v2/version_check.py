@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ import logging
 
 from ...database import get_db
 from ...models import Application, Branch, Version, Device, UpdateLog
-from ...schemas.version import VersionCheckRequest, VersionCheckResponse
+from ...schemas.version import VersionCheckResponse
 from ...schemas.device import DeviceInfo
 from ...core.security import verify_token
 from ...core.utils import save_device_info
@@ -19,16 +19,48 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter()
 
-@router.post("/check-version", response_model=VersionCheckResponse)
+class V2VersionCheckRequest(BaseModel):
+    app_id: str
+    branch: str = "stable"
+    current_version_code: int
+
+class V2ReportUpdateRequest(BaseModel):
+    app_id: str
+    version_code: int
+    status: str = "success"
+
+class DownloadReportRequest(BaseModel):
+    app_id: str
+    version_code: int
+    status: str
+    device_info: DeviceInfo
+    error_message: Optional[str] = None
+
+class InstallReportRequest(BaseModel):
+    app_id: str
+    version_code: int
+    status: str
+    device_info: DeviceInfo
+
+@router.post("/devices/{android_id}/check-version", response_model=VersionCheckResponse)
 async def check_version_v2(
-    request: VersionCheckRequest,
-    fastapi_request: Request,
+    android_id: str,
+    api_key: str = Query(..., description="設備綁定的 API Key"),
+    request: V2VersionCheckRequest = Body(...),
+    fastapi_request: Request = None,
     db: Session = Depends(get_db)
 ):
-    """[V2] Check if update is available for the application"""
-    logger.info(f"[V2 檢查更新] App: {request.app_id} | Branch: {request.branch} | Device: {request.device_info['android_id']}")
+    """[V2] MDM App 專用輕量化檢查更新 (不留 Check 日誌)"""
     
-    # 邏輯與原本完全相同
+    # 1. 驗證裝置合法性
+    device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+    if not device:
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid Device or API Key")
+
+    # 更新最後活躍時間
+    device.last_check_time = datetime.utcnow()
+    
+    # 2. 尋找對應的 App 與 分支
     app = db.query(Application).filter(and_(Application.app_id == request.app_id, Application.is_active == True)).first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
@@ -39,36 +71,13 @@ async def check_version_v2(
         
     latest_version = db.query(Version).filter(and_(Version.application_id == app.id, Version.branch_id == branch.id, Version.is_active == True)).order_by(Version.version_code.desc()).first()
 
-    # 保存設備資訊
-    device_data = save_device_info(request.device_info)
-    device_data.update({"notes": app.id})
-    device = db.query(Device).filter(and_(Device.android_id == device_data["android_id"], Device.notes == app.id)).first()
-    
-    if device:
-        for key, value in device_data.items():
-            setattr(device, key, value)
-        device.last_check_time = datetime.utcnow()
-    else:
-        device = Device(**device_data)
-        db.add(device)
-
     if not latest_version:
-        db.commit() # 儲存設備資訊
+        db.commit() 
         raise HTTPException(status_code=404, detail="No version available for this branch")
     
-    # 記錄檢查日誌
-    update_log = UpdateLog(
-        device_id=device.id,
-        application_id=app.id,
-        branch_id=branch.id,
-        from_version=str(request.current_version_code),
-        to_version=str(latest_version.version_code),
-        update_type="check",
-        status="success"
-    )
-    db.add(update_log)
-    db.commit()
-    
+    db.commit() # 只儲存 device.last_check_time，不寫入 UpdateLog!
+
+    # 3. 判斷更新邏輯
     needs_update = request.current_version_code < latest_version.version_code
     force_update = latest_version.force_update or request.current_version_code < latest_version.min_supported_version
     
@@ -79,8 +88,6 @@ async def check_version_v2(
             download_url = latest_version.apk_download_url
         else:
             download_url = f"{base_url}{latest_version.apk_download_url if latest_version.apk_download_url.startswith('/') else '/' + latest_version.apk_download_url}"
-    
-    logger.info(f"[V2 檢查結果] 設備 {device.android_id} 是否需更新: {needs_update}")
     
     return VersionCheckResponse(
         is_active=bool(device.is_active),
@@ -93,13 +100,6 @@ async def check_version_v2(
         file_size=latest_version.file_size if needs_update else None,
         release_notes=latest_version.release_notes if needs_update else None
     )
-
-class DownloadReportRequest(BaseModel):
-    app_id: str
-    version_code: int
-    status: str
-    device_info: DeviceInfo
-    error_message: Optional[str] = None
 
 @router.post("/report-download")
 async def report_download(
@@ -141,12 +141,6 @@ async def report_download(
     
     return {"status": "logged"}
 
-class InstallReportRequest(BaseModel):
-    app_id: str
-    version_code: int
-    status: str
-    device_info: DeviceInfo
-
 @router.post("/report-install")
 async def report_install(
     request: InstallReportRequest,
@@ -181,3 +175,45 @@ async def report_install(
                 db.commit()
     
     return {"status": "logged"}
+
+@router.post("/devices/{android_id}/report-updated")
+async def report_updated_v2(
+    android_id: str,
+    api_key: str = Query(...),
+    request: V2ReportUpdateRequest = Body(...),
+    db: Session = Depends(get_db)
+):
+    """[V2] 回報更新完成，寫入唯一的 'updated' 日誌"""
+    device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+    if not device:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    app = db.query(Application).filter(Application.app_id == request.app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    # 尋找是哪個版本，以便綁定 branch_id
+    version = db.query(Version).filter(and_(Version.application_id == app.id, Version.version_code == request.version_code)).first()
+    
+    # 寫入更新成功的日誌 (update_type 設為 'updated')
+    update_log = UpdateLog(
+        device_id=device.id,
+        application_id=app.id,
+        branch_id=version.branch_id if version else None,
+        from_version="unknown", # 因為簡化了流程，這裡不再追蹤升級前的版本，或者由 App 帶上來
+        to_version=str(request.version_code),
+        update_type="updated",
+        status=request.status
+    )
+    db.add(update_log)
+    
+    # 同時更新 device_installed_apps 確保後台看得到最新狀態
+    from sqlalchemy import text
+    db.execute(text("""
+        INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
+        VALUES (:d_id, :a_id, :v_code)
+        ON DUPLICATE KEY UPDATE current_version_code = :v_code
+    """), {"d_id": device.id, "a_id": app.id, "v_code": request.version_code})
+    
+    db.commit()
+    return {"status": "success", "message": "Update logged successfully"}
