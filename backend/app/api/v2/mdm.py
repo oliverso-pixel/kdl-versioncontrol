@@ -75,50 +75,6 @@ async def register_device(
     db.commit()
     return {"status": "success", "android_id": payload.android_id, "api_key": new_key}
 
-# @router.post("/devices/register")
-# async def register_device(
-#     android_id: str,
-#     device_model: str,
-#     os_version: str,
-#     hardware_id: str = Query(None, description="IMEI 或 Hardware Serial Number (DO模式)"),
-#     db: Session = Depends(get_db)
-# ):
-#     """1. 設備首次登記 (防重複機制)"""
-#     device = None
-    
-#     # 優先使用實體硬體 ID 尋找裝置 (防重置)
-#     if hardware_id:
-#         device = db.query(Device).filter(Device.hardware_id == hardware_id).first()
-        
-#     # 退而求其次使用 android_id
-#     if not device:
-#         device = db.query(Device).filter(Device.android_id == android_id).first()
-    
-#     new_key = generate_device_key() # 重新產生綁定金鑰
-    
-#     if device:
-#         # 裝置已存在 -> 更新最新的 android_id 與 API Key，避免產生重複資料
-#         device.android_id = android_id 
-#         device.hardware_id = hardware_id if hardware_id else device.hardware_id
-#         device.device_api_key = new_key
-#         device.device_model = device_model
-#         device.os_version = os_version
-#         device.is_active = True
-#     else:
-#         # 全新實體裝置
-#         device = Device(
-#             android_id=android_id,
-#             hardware_id=hardware_id,
-#             device_model=device_model,
-#             os_version=os_version,
-#             app_version="1.0.0",
-#             device_api_key=new_key
-#         )
-#         db.add(device)
-    
-#     db.commit()
-#     return {"status": "success", "android_id": android_id, "api_key": new_key}
-
 # @router.get("/devices/{android_id}/managed-apps")
 # async def get_managed_apps(
 #     android_id: str,

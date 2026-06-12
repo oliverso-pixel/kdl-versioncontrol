@@ -12,9 +12,13 @@ const DeviceMonitoringV2 = () => {
   const [locationHistory, setLocationHistory] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  const [storeApps, setStoreApps] = useState([]);
+  const [selectedInstallApp, setSelectedInstallApp] = useState("");
+
   useEffect(() => {
     fetchDevices();
     // 設定定時器，每 10 秒刷新一次列表 (顯示最新的 is_online 與 last_check_time)
+    fetchStoreApps();
     const interval = setInterval(fetchDevices, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -23,6 +27,18 @@ const DeviceMonitoringV2 = () => {
     // 呼叫原本的 V1 API，它會回傳所有 DB 的設備，包含我們加的 latitude 等欄位
     const data = await api.getDevices(); 
     setAllDevices(data);
+  };
+
+  const fetchStoreApps = async () => {
+    try {
+      const res = await api.getStoreApps(); // 呼叫 V2 Admin Store API
+      // 過濾掉 mdmapp，不顯示在安裝選單中
+      const filteredApps = res.data.filter(app => app.app_id !== 'com.kowloondairy.mdmapp');
+      setStoreApps(filteredApps);
+      if(filteredApps.length > 0) setSelectedInstallApp(filteredApps[0].app_id);
+    } catch (err) {
+      console.error("無法取得應用程式列表", err);
+    }
   };
 
   const openDeviceDetails = async (device) => {
@@ -46,17 +62,15 @@ const DeviceMonitoringV2 = () => {
     if (!window.confirm(`確定要對設備執行 [${action}] 指令嗎？`)) return;
     
     try {
-      // 1. 自動產生 task_id (使用 Timestamp 確保唯一性)
+      // 自動產生 task_id (使用 Timestamp 確保唯一性)
       const payload = {
         action: action,
         task_id: `task_${Date.now()}`,
         ...extraData
       };
 
-      // 2. 攔截 DC_ (Device Control) 指令，強制綁定 target_app
-      if (action.startsWith('DC_')) {
-        payload.target_app = "com.kowloondairy.mdmapp";
-      }
+      // 攔截 DC_ (Device Control) 指令，強制綁定 MDM App
+      if (action.startsWith('DC_')) { payload.target_app = "com.kowloondairy.mdmapp"; }
 
       await api.sendDeviceCommandV2(selectedDevice.android_id, payload);
       alert('✅ 指令已送出');
@@ -69,6 +83,9 @@ const DeviceMonitoringV2 = () => {
     device.android_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (device.device_model && device.device_model.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  const isOnline = selectedDevice?.is_online || false;
+  const btnDisabledClass = !isOnline ? "opacity-50 cursor-not-allowed filter grayscale" : "hover:-translate-y-0.5 shadow-sm";
 
   return (
     <div>
@@ -157,31 +174,59 @@ const DeviceMonitoringV2 = () => {
               {/* 左半部：資訊與控制 */}
               <div className="space-y-6">
                 <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
-                  <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">遠端指令 (MDM 控制)</h4>
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <h4 className="font-bold text-gray-800">遠端指令 (MDM 控制)</h4>
+                    {!isOnline && <span className="text-xs text-red-500 font-bold bg-red-50 px-2 py-1 rounded">設備離線中，指令已停用</span>}
+                  </div>
+                  
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-  
-                    <button onClick={() => handleRemoteCommand('reboot')} className="bg-red-50 text-red-700 hover:bg-red-100 p-3 rounded flex flex-col items-center justify-center border border-red-200 transition">
+                    {/* 1. 裝置重啟 (改為 DC_restart) */}
+                    <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_restart')} className={`bg-red-50 text-red-700 hover:bg-red-100 p-3 rounded flex flex-col items-center justify-center border border-red-200 transition ${btnDisabledClass}`}>
                       <RotateCcw className="w-6 h-6 mb-1"/> 遠端重啟設備
                     </button>
                     
-                    <button onClick={() => handleRemoteCommand('sync_apps')} className="bg-blue-50 text-blue-700 hover:bg-blue-100 p-3 rounded flex flex-col items-center justify-center border border-blue-200 transition">
+                    <button disabled={!isOnline} onClick={() => handleRemoteCommand('sync_apps')} className={`bg-blue-50 text-blue-700 hover:bg-blue-100 p-3 rounded flex flex-col items-center justify-center border border-blue-200 transition ${btnDisabledClass}`}>
                       <DownloadCloud className="w-6 h-6 mb-1"/> 強制拉取更新
                     </button>
                     
-                    <button onClick={() => handleRemoteCommand('fetch_logs')} className="bg-gray-50 text-gray-700 hover:bg-gray-100 p-3 rounded flex flex-col items-center justify-center border border-gray-200 transition">
+                    <button disabled={!isOnline} onClick={() => handleRemoteCommand('fetch_logs')} className={`bg-gray-50 text-gray-700 hover:bg-gray-100 p-3 rounded flex flex-col items-center justify-center border border-gray-200 transition ${btnDisabledClass}`}>
                       <SettingsIcon className="w-6 h-6 mb-1"/> 提取設備 Log
                     </button>
 
-                    {/* ====== 新增的 Device Control (DC) 尋找裝置聲音按鈕 ====== */}
-                    <button onClick={() => handleRemoteCommand('DC_play_sound')} className="bg-yellow-50 text-yellow-700 hover:bg-yellow-100 p-3 rounded flex flex-col items-center justify-center border border-yellow-200 transition">
+                    {/* 尋找裝置聲音按鈕 */}
+                    <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_play_sound')} className={`bg-yellow-50 text-yellow-700 hover:bg-yellow-100 p-3 rounded flex flex-col items-center justify-center border border-yellow-200 transition ${btnDisabledClass}`}>
                       <Volume2 className="w-6 h-6 mb-1"/> 播放尋找聲音
                     </button>
                     
-                    <button onClick={() => handleRemoteCommand('DC_stop_sound')} className="bg-green-50 text-green-700 hover:bg-green-100 p-3 rounded flex flex-col items-center justify-center border border-green-200 transition col-span-2 lg:col-span-1">
+                    <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_stop_sound')} className={`bg-green-50 text-green-700 hover:bg-green-100 p-3 rounded flex flex-col items-center justify-center border border-green-200 transition col-span-2 lg:col-span-1 ${btnDisabledClass}`}>
                       <VolumeX className="w-6 h-6 mb-1"/> 停止聲音
                     </button>
-
                   </div>
+
+                  {/* ====== 新增：遠端安裝 App 區塊 ====== */}
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <h5 className="text-sm font-bold text-gray-700 mb-2">推送並安裝應用程式</h5>
+                    <div className="flex gap-2">
+                      <select 
+                        disabled={!isOnline}
+                        value={selectedInstallApp} 
+                        onChange={(e) => setSelectedInstallApp(e.target.value)}
+                        className={`flex-1 border border-gray-300 rounded p-2 text-sm focus:ring-indigo-500 ${!isOnline && 'bg-gray-100 opacity-50 cursor-not-allowed'}`}
+                      >
+                        {storeApps.map(app => (
+                          <option key={app.app_id} value={app.app_id}>{app.name} ({app.app_id})</option>
+                        ))}
+                      </select>
+                      <button 
+                        disabled={!isOnline}
+                        onClick={() => handleRemoteCommand('AC_app_install', { target_app: selectedInstallApp, branch_name: "stable" })} 
+                        className={`bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 transition ${btnDisabledClass}`}
+                      >
+                        派發安裝
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
 
                 <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">

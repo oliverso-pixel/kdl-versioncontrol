@@ -217,3 +217,49 @@ async def report_updated_v2(
     
     db.commit()
     return {"status": "success", "message": "Update logged successfully"}
+
+# TODO：add android_id & API key
+@router.get("/apps/{app_id}/latest-version")
+async def get_app_latest_version(
+    app_id: str,
+    branch: str = Query("stable", description="分支名稱，預設為 stable"),
+    fastapi_request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    [V2] 查詢指定 App 的最新版本資訊 (極簡格式)
+    """
+    app = db.query(Application).filter(Application.app_id == app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+        
+    b = db.query(Branch).filter(and_(Branch.application_id == app.id, Branch.branch_name == branch)).first()
+    if not b:
+        raise HTTPException(status_code=404, detail=f"Branch '{branch}' not found for this app")
+
+    latest_version = db.query(Version).filter(
+        and_(Version.application_id == app.id, Version.branch_id == b.id, Version.is_active == True)
+    ).order_by(Version.version_code.desc()).first()
+
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="No version available for this app and branch")
+
+    # 處理下載路徑
+    download_url = ""
+    if latest_version.apk_download_url:
+        base_url = str(fastapi_request.base_url).rstrip('/')
+        if latest_version.apk_download_url.startswith(('http://', 'https://')):
+            download_url = latest_version.apk_download_url
+        else:
+            download_url = f"{base_url}{latest_version.apk_download_url if latest_version.apk_download_url.startswith('/') else '/' + latest_version.apk_download_url}"
+
+    # 嚴格依照要求的格式回傳
+    return {
+        "is_active": bool(app.is_active),
+        "latest_version_code": str(latest_version.version_code),
+        "latest_version_name": latest_version.version_name or "",
+        "download_url": download_url,
+        "apk_hash": latest_version.apk_file_hash or "",
+        "file_size": str(latest_version.file_size) if latest_version.file_size else "",
+        "release_notes": latest_version.release_notes or ""
+    }
