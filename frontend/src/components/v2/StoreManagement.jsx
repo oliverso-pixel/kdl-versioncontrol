@@ -141,19 +141,23 @@ const StoreManagement = () => {
       formData.append('version_code', versionFormData.version_code);
       formData.append('version_name', versionFormData.version_name);
       formData.append('min_supported_version', versionFormData.min_supported_version);
-      formData.append('force_update', versionFormData.force_update);
-      formData.append('release_notes', versionFormData.release_notes);
+      
+      formData.append('force_update', versionFormData.force_update === true ? 'true' : 'false');
+      
+      if (versionFormData.release_notes && versionFormData.release_notes.trim() !== '') {
+        formData.append('release_notes', versionFormData.release_notes);
+      }
+      
       formData.append('file', versionFormData.file);
 
-      await api.uploadApk(formData); // 呼叫 V1 的上傳端點
+      await api.uploadApk(formData);
       alert('APK 已成功上傳並發布');
       setShowVersionModal(false);
       
-      // 重置表單
       setVersionFormData({
         branch_id: '', version_code: '', version_name: '', min_supported_version: '1', force_update: false, release_notes: '', file: null
       });
-      openAppDetails(rawApp.app_id); // 刷新詳情
+      openAppDetails(rawApp.app_id);
     } catch (err) {
       alert('APK 上傳失敗');
     } finally {

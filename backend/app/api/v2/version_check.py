@@ -20,7 +20,6 @@ logger.setLevel(logging.INFO)
 router = APIRouter()
 
 class V2VersionCheckRequest(BaseModel):
-    app_id: str
     branch: str = "stable"
     current_version_code: int
 
@@ -50,20 +49,21 @@ async def check_version_v2(
     fastapi_request: Request = None,
     db: Session = Depends(get_db)
 ):
-    """[V2] MDM App 專用輕量化檢查更新 (不留 Check 日誌)"""
+    """[V2] MDM App 專用輕量化檢查更新 (只針對 com.kowloondairy.mdmapp)"""
     
-    # 1. 驗證裝置合法性
+    # 強制鎖定檢查目標為 MDM App
+    target_app_id = "com.kowloondairy.mdmapp"
+    
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid Device or API Key")
 
-    # 更新最後活躍時間
     device.last_check_time = datetime.utcnow()
     
-    # 2. 尋找對應的 App 與 分支
-    app = db.query(Application).filter(and_(Application.app_id == request.app_id, Application.is_active == True)).first()
+    # 尋找目標 App (com.kowloondairy.mdmapp)
+    app = db.query(Application).filter(and_(Application.app_id == target_app_id, Application.is_active == True)).first()
     if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
+        raise HTTPException(status_code=404, detail=f"Target App '{target_app_id}' not found")
         
     branch = db.query(Branch).filter(and_(Branch.application_id == app.id, Branch.branch_name == request.branch, Branch.is_active == True)).first()
     if not branch:
@@ -71,13 +71,11 @@ async def check_version_v2(
         
     latest_version = db.query(Version).filter(and_(Version.application_id == app.id, Version.branch_id == branch.id, Version.is_active == True)).order_by(Version.version_code.desc()).first()
 
+    db.commit()
+
     if not latest_version:
-        db.commit() 
         raise HTTPException(status_code=404, detail="No version available for this branch")
     
-    db.commit() # 只儲存 device.last_check_time，不寫入 UpdateLog!
-
-    # 3. 判斷更新邏輯
     needs_update = request.current_version_code < latest_version.version_code
     force_update = latest_version.force_update or request.current_version_code < latest_version.min_supported_version
     

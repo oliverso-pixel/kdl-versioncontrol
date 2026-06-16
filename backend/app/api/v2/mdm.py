@@ -207,6 +207,19 @@ async def device_websocket(
         return
 
     await ws_manager.connect(websocket, android_id, db)
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "status": "success",
+            "message": "Connected to V2 MDM WebSocket Service",
+            "device_model": device.device_model,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        # 防呆機制：如果剛連上就立刻斷線，安全退出
+        ws_manager.disconnect(android_id, db)
+        return
     
     try:
         while True:
@@ -516,3 +529,26 @@ async def get_device_location_history(android_id: str, limit: int = 50, db: Sess
     """)
     history = db.execute(query, {"d_id": device.id, "limit": limit}).fetchall()
     return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.created_at} for row in history]
+
+# ----------------- All Device ----------------- #
+@router.get("/admin/devices")
+async def get_all_devices_v2(db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    """[V2 Web Panel] 取得所有裝置 (包含停用與離線)，供後台清單與篩選使用"""
+    devices = db.query(Device).order_by(Device.last_check_time.desc()).all()
+    result = []
+    for d in devices:
+        result.append({
+            "id": d.id,
+            "android_id": d.android_id,
+            "hardware_id": d.hardware_id,
+            "device_model": d.device_model,
+            "device_api_key": d.device_api_key,
+            "is_online": bool(d.is_online),
+            "battery_level": d.battery_level,
+            "latitude": float(d.latitude) if d.latitude else None,
+            "longitude": float(d.longitude) if d.longitude else None,
+            "is_active": bool(d.is_active),
+            "last_check_time": d.last_check_time.isoformat() if d.last_check_time else None,
+            "notes": d.notes
+        })
+    return result

@@ -388,6 +388,11 @@ class ApiService {
       body: JSON.stringify(data),
     });
   }
+
+  // Device V2 APIs
+  async getAllDevicesV2() {
+    return this.request('/api/v2/admin/devices');
+  }
 }
 
 export default new ApiService();
