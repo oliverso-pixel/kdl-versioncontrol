@@ -1,0 +1,14 @@
+node_modules/
+__pycache__/
+*.py[cod]
+*.log
+
+backend/venv/
+backend/app/static/apks/
+backend/backups/
+backend/logs/
+backend/tests/
+
+frontend/README.md
+
+testupdateapp/
