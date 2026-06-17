@@ -109,18 +109,6 @@ async def check_version(
             detail="No version available for this branch"
         )
     
-    # if datetime.now().minute == 0:
-    # update_log = UpdateLog(
-    # device_id=device.id,
-    # application_id=app.id,
-    # branch_id=branch.id,
-    # from_version=str(request.current_version_code),
-    # to_version=str(latest_version.version_code),
-    # update_type="check",
-    # status="success")
-    # db.add(update_log)
-    # db.commit()
-    
     # Check if update is needed
     needs_update = request.current_version_code < latest_version.version_code
     force_update = (

@@ -33,10 +33,10 @@ const Login = ({ onLogin }) => {
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow">
         <div>
           <h2 className="text-center text-3xl font-extrabold text-gray-900">版本控制中心</h2>
-          <div className="flex justify-center mt-4 space-x-2">
+          {/* <div className="flex justify-center mt-4 space-x-2">
             <button onClick={() => setMode('v1')} className={`px-4 py-1 rounded ${mode === 'v1' ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>V1 (API Key)</button>
             <button onClick={() => setMode('v2')} className={`px-4 py-1 rounded ${mode === 'v2' ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>V2 (帳號密碼)</button>
-          </div>
+          </div> */}
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {mode === 'v1' ? (

@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/admin", tags=["Statistics"])
 
 @router.get("/statistics")
 async def get_statistics(
-    period: str = Query("week", regex="^(day|week|month|year)$"),
+    period: str = Query("week", pattern="^(day|week|month|year)$"),
     db: Session = Depends(get_db),
     token_payload: dict = Depends(verify_token)
 ):

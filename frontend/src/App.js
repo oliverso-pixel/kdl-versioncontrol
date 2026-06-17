@@ -45,16 +45,6 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  // const navigation = [
-  //   { name: '儀表板', icon: Home, view: 'dashboard' },
-  //   { name: '應用程式管理', icon: Package, view: 'applications' },
-  //   { name: '分支管理', icon: GitBranch, view: 'branches' },
-  //   { name: '版本管理', icon: GitBranch, view: 'versions' },
-  //   { name: '設備監控', icon: Smartphone, view: 'devices' },
-  //   { name: '更新日誌', icon: FileText, view: 'logs' },
-  //   { name: '系統設定', icon: Settings, view: 'settings' },
-  // ];
-
   const navigation = apiMode === 'v1' ? [
     { name: '儀表板', icon: Home, view: 'dashboard' },
     { name: '應用程式管理', icon: Package, view: 'applications' },
@@ -65,7 +55,8 @@ function App() {
   ] : [
     { name: '儀表板', icon: Home, view: 'dashboard' },
     { name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' },
-    { name: '設備監控 (V2)', icon: Smartphone, view: 'devices_v2' },
+    { name: '版本管理（V1）', icon: GitBranch, view: 'versions' },
+    { name: '設備監控', icon: Smartphone, view: 'devices_v2' },
     { name: '帳號管理', icon: Users, view: 'users_v2' },
     { name: '系統設定', icon: Settings, view: 'settings' },
   ];
