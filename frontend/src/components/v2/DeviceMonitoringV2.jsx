@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2 } from 'lucide-react';
 import api from '../../services/api';
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import L from "leaflet";
+import LocationMap from "./LocationMap";
 
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
@@ -18,6 +22,11 @@ const DeviceMonitoringV2 = () => {
   const [installedApps, setInstalledApps] = useState([]);
   const [locationHistory, setLocationHistory] = useState([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showPopup, setShowPopup] = useState(false);
+  const [startDate, setStartDate] = useState(new Date());
+
   
   // 修改設備 Modal 狀態
   const [showEditModal, setShowEditModal] = useState(false);
@@ -32,7 +41,7 @@ const DeviceMonitoringV2 = () => {
 
   const fetchDevices = async () => {
     try {
-      const data = await api.getAllDevicesV2(); // 使用新的 V2 API，拉取全部資料
+      const data = await api.getAllDevicesV2();
       setAllDevices(data);
     } catch (err) {
       console.error("載入設備失敗", err);
@@ -118,6 +127,14 @@ const DeviceMonitoringV2 = () => {
 
   const isOnline = selectedDevice?.is_online || false;
   const btnDisabledClass = !isOnline ? "opacity-50 cursor-not-allowed filter grayscale" : "hover:-translate-y-0.5 shadow-sm";
+
+  const filteredHistory = locationHistory.filter((loc) => {
+    const locDate = new Date(loc.time).toDateString();
+    return !selectedDate || locDate === selectedDate.toDateString();
+  })
+    .sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  const datePickerRef = useRef(null);
 
   return (
     <div>
@@ -288,7 +305,7 @@ const DeviceMonitoringV2 = () => {
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+                {/* <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
                   <h4 className="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center"><History className="w-5 h-5 mr-2 text-indigo-500"/> 歷史座標軌跡</h4>
                   {loadingDetails ? <p className="text-gray-500 text-sm">讀取中...</p> : (
                     <div className="max-h-60 overflow-y-auto">
@@ -303,7 +320,98 @@ const DeviceMonitoringV2 = () => {
                       )) : <p className="text-gray-400 text-sm">尚無歷史軌跡紀錄</p>}
                     </div>
                   )}
+                </div> */}
+                <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+                  <h4 className="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center">
+                    <History className="w-5 h-5 mr-2 text-indigo-500" /> 歷史座標軌跡
+                  </h4>
+
+                  <div className="mb-4">
+                    <DatePicker
+                      ref={datePickerRef} // 3. 綁定 ref
+                      selected={selectedDate}
+                      onChange={(date) => {
+                        if (!date) return;
+                        setSelectedDate(date);
+                      }}
+                      onSelect={(date) => {
+                        // 點擊日曆格子的邏輯保持不變
+                        const hasData = Array.isArray(locationHistory) && locationHistory.some(
+                          (loc) => new Date(loc.time).toDateString() === date.toDateString()
+                        );
+                        if (!hasData) {
+                          alert("該日期尚無歷史軌跡紀錄！");
+                        } else {
+                          setShowPopup(true);
+                        }
+                      }}
+                      dateFormat="yyyy-MM-dd"
+                      placeholderText="查詢日期"
+
+                      // 4. 移除原來的 readonly，允許手動輸入
+                      // className="w-full text-center" 
+
+                      shouldCloseOnSelect={true}
+
+                      // 5. 核心修改：按下 Enter 時，檢查資料、觸發失焦並強制關閉日曆
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const inputValue = e.target.value;
+                          const parsedDate = new Date(inputValue);
+
+                          // 檢查手動輸入的字串是否為有效日期
+                          if (!isNaN(parsedDate.getTime())) {
+                            // 執行您原有的歷史資料檢查邏bles
+                            const hasData = Array.isArray(locationHistory) && locationHistory.some(
+                              (loc) => new Date(loc.time).toDateString() === parsedDate.toDateString()
+                            );
+
+                            if (!hasData) {
+                              alert("該日期尚無歷史軌跡紀錄！");
+                            } else {
+                              setShowPopup(true);
+                            }
+
+                            // 同步更新狀態
+                            setSelectedDate(parsedDate);
+                          }
+
+                          // ✨ 強制關閉 DatePicker 面板並讓輸入框失焦
+                          if (datePickerRef.current) {
+                            datePickerRef.current.setOpen(false); // 關閉面板
+                          }
+                          e.target.blur(); // 輸入框失焦
+                        }
+                      }}
+                    />
+                    
+                    {showPopup && (
+                      <div className="modal-overlay">
+                        <div className="modal-container">
+                          <button
+                            onClick={() => setShowPopup(false)}
+                            className="modal-close-btn"
+                          >
+                            ✕
+                          </button>
+                          <LocationMap
+                            locationHistory={filteredHistory}
+                            selectedDate={selectedDate}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {loadingDetails ? (
+                    <p className="text-gray-500 text-sm">讀取中...</p>
+                  ) : (
+                    <div className="mb-6">
+                      <LocationMap locationHistory={filteredHistory} selectedDate={selectedDate} />
+                    </div>
+                  )}
                 </div>
+
               </div>
 
               <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
