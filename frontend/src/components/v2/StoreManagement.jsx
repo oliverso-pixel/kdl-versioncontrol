@@ -150,7 +150,7 @@ const StoreManagement = () => {
       
       formData.append('file', versionFormData.file);
 
-      await api.uploadApk(formData);
+      await api.uploadAPK(formData);
       alert('APK 已成功上傳並發布');
       setShowVersionModal(false);
       

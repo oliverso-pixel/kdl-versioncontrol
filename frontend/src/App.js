@@ -55,7 +55,7 @@ function App() {
   ] : [
     { name: '儀表板', icon: Home, view: 'dashboard' },
     { name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' },
-    { name: '版本管理（V1）', icon: GitBranch, view: 'versions' },
+    // { name: '版本管理（V1）', icon: GitBranch, view: 'versions' },
     { name: '設備監控', icon: Smartphone, view: 'devices_v2' },
     { name: '帳號管理', icon: Users, view: 'users_v2' },
     { name: '系統設定', icon: Settings, view: 'settings' },

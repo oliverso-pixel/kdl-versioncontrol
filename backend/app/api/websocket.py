@@ -114,3 +114,4 @@ async def notify_update_available(app_id: str, branch: str, version_info: dict):
     }
     
     await manager.broadcast_to_app_branch(app_id, branch, message)
+    
