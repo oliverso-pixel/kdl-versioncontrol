@@ -115,14 +115,14 @@ class ApiService {
   async getVersions(applicationId = null, branchId = null) {
     let query = '/api/admin/versions';
     const params = new URLSearchParams();
-    
+
     if (applicationId) params.append('application_id', applicationId);
     if (branchId) params.append('branch_id', branchId);
-    
+
     if (params.toString()) {
       query += `?${params.toString()}`;
     }
-    
+
     return this.request(query);
   }
 
@@ -130,20 +130,20 @@ class ApiService {
     try {
       // 將所有參數都放在查詢字符串中
       const queryParams = new URLSearchParams();
-      
+
       // 必要參數
       queryParams.append('application_id', formData.get('application_id'));
       queryParams.append('branch_id', formData.get('branch_id'));
       queryParams.append('version_code', formData.get('version_code'));
       queryParams.append('version_name', formData.get('version_name'));
-      
+
       // 額外參數也放在查詢字符串中
       const forceUpdate = formData.get('force_update');
       queryParams.append('force_update', forceUpdate === 'true' || forceUpdate === true ? 'true' : 'false');
-      
+
       const minVersion = formData.get('min_supported_version') || '0';
       queryParams.append('min_supported_version', minVersion);
-      
+
       const releaseNotes = formData.get('release_notes') || '';
       queryParams.append('release_notes', releaseNotes);
 
@@ -219,12 +219,12 @@ class ApiService {
     Object.keys(filters).forEach(key => {
       if (filters[key]) params.append(key, filters[key]);
     });
-    
+
     let query = '/api/admin/logs';
     if (params.toString()) {
       query += `?${params.toString()}`;
     }
-    
+
     return this.request(query);
   }
 
@@ -239,10 +239,16 @@ class ApiService {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,
     });
-    
-    if (!response.ok) throw new Error('登入失敗');
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || '登入失敗');
+    }
+
     const data = await response.json();
-    this.setToken(data.access_token);
+
+    await this.setToken(data.access_token);
+
     localStorage.setItem('apiMode', 'v2');
     return data;
   }
@@ -389,10 +395,6 @@ class ApiService {
     });
   }
 
-  // Device V2 APIs
-  async getAllDevicesV2() {
-    return this.request('/api/v2/admin/devices');
-  }
 }
 
 export default new ApiService();

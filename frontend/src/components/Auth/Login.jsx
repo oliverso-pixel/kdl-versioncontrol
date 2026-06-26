@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import api from '../../services/api';
+import { Link } from 'react-router-dom';
 
 const Login = ({ onLogin }) => {
   const [mode, setMode] = useState('v2');
@@ -11,18 +12,29 @@ const Login = ({ onLogin }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
+
     try {
+      let data, isSuper = false;
+
       if (mode === 'v1') {
-        const data = await api.login(apiKey);
+        data = await api.login(apiKey);
         localStorage.setItem('apiMode', 'v1');
-        onLogin(data.access_token, 'v1');
       } else {
-        const data = await api.loginV2(username, password);
-        onLogin(data.access_token, 'v2');
+        data = await api.loginV2(username, password);
+        isSuper = Boolean(data.user?.is_superuser);
+        localStorage.setItem('apiMode', 'v2');
+        localStorage.setItem('isSuperuser', isSuper ? 'true' : 'false');
       }
+
+      onLogin(data.access_token, mode, isSuper);
     } catch (err) {
-      setError('認證失敗，請檢查輸入的憑證');
+      if (err.response?.status === 403) {
+        setError('權限不足，請確認帳號是否為 superuser');
+      } else {
+        setError('帳號或密碼錯誤，請重新輸入'); 
+      }
     } finally {
       setLoading(false);
     }
