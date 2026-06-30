@@ -26,6 +26,12 @@ class Device(Base):
     latitude = Column(Numeric(10, 8), nullable=True)
     longitude = Column(Numeric(11, 8), nullable=True)
 
+    route = Column(String(100), nullable=True)
+    altitude = Column(Numeric(10, 2), nullable=True)
+    address = Column(Text, nullable=True)
+    satellites = Column(Integer, nullable=True)
+    gps_time = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

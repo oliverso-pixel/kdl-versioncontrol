@@ -3,15 +3,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, time
+from ...database import get_db, get_mssql_db
+from ...core.security import verify_token, verify_api_key
+from ...models import Device, Application, Branch, Version, SystemSetting
 import json
 import secrets
 import string
+import logging
 
-from ...database import get_db
-from ...core.security import verify_token, verify_api_key
-from ...models import Device, Application, Branch, Version
-
+logger = logging.getLogger("v2.mdm.websocket")
+logger.setLevel(logging.INFO)
 router = APIRouter(tags=["MDM Control (v2)"])
 
 def generate_device_key():
@@ -75,53 +77,6 @@ async def register_device(
     db.commit()
     return {"status": "success", "android_id": payload.android_id, "api_key": new_key}
 
-# @router.get("/devices/{android_id}/managed-apps")
-# async def get_managed_apps(
-#     android_id: str,
-#     api_key: str,
-#     branch: Optional[str] = Query(None, description="指定要拉取的分支，若未指定則回傳所有分支"),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     MDM App 取得應安裝/監控的 App 清單與最新版本資訊
-#     """
-#     # 1. 驗證設備與 API Key
-#     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
-#     if not device:
-#         raise HTTPException(status_code=401, detail="Unauthorized: Invalid Android ID or API Key")
-
-#     # 2. 查詢 latest_versions View 表
-#     if branch:
-#         # 如果 MDM App 有指定分支 (例如 "stable")
-#         query = text("SELECT * FROM latest_versions WHERE branch_name = :branch")
-#         results = db.execute(query, {"branch": branch}).fetchall()
-#     else:
-#         # 取得所有 App 的最新版本
-#         query = text("SELECT * FROM latest_versions")
-#         results = db.execute(query).fetchall()
-    
-#     # 3. 整理回傳格式
-#     apps_list = []
-#     for row in results:
-#         # 處理相對路徑與絕對路徑的下載網址
-#         download_url = row.apk_download_url
-        
-#         apps_list.append({
-#             "app_id": row.app_id,
-#             "app_name": row.app_name,
-#             "branch_name": row.branch_name,
-#             "version_code": row.version_code,
-#             "version_name": row.version_name,
-#             "download_url": download_url,
-#             "force_update": bool(row.force_update)
-#         })
-        
-#     return {
-#         "status": "success", 
-#         "device_model": device.device_model,
-#         "data": apps_list
-#     }
-
 @router.post("/devices/{android_id}/sync-apps")
 async def sync_device_apps(
     android_id: str,
@@ -179,16 +134,24 @@ class DeviceWSManager:
         db.execute(text("UPDATE devices SET is_online = 1, last_check_time = NOW() WHERE android_id = :aid"), {"aid": android_id})
         db.commit()
 
+        logger.info(f"🟢 [MDM WS 連線建立] 設備 {android_id} 已連線。現時連接中總數: {len(self.active_devices)} | 列表: {list(self.active_devices.keys())}")
+
     def disconnect(self, android_id: str, db: Session):
         if android_id in self.active_devices:
             del self.active_devices[android_id]
             db.execute(text("UPDATE devices SET is_online = 0 WHERE android_id = :aid"), {"aid": android_id})
             db.commit()
 
+            logger.info(f"🔴 [MDM WS 連線中斷] 設備 {android_id} 已斷線。現時連接中總數: {len(self.active_devices)} | 列表: {list(self.active_devices.keys())}")
+
     async def send_command(self, android_id: str, command: dict):
         if android_id in self.active_devices:
+            
+            logger.info(f"📤 [MDM WS 發送指令] 給設備: {android_id} | 內容: {json.dumps(command, ensure_ascii=False)}")
+
             await self.active_devices[android_id].send_json(command)
             return True
+
         return False
 
 ws_manager = DeviceWSManager()
@@ -228,6 +191,10 @@ async def device_websocket(
             if not data or not data.strip():
                 continue
 
+            logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
+            connected_list = list(ws_manager.active_devices.keys())
+            logger.info(f"📋 [MDM WS 當前連線清單] 列表: {connected_list}")
+
             try:
                 message = json.loads(data)
             except json.JSONDecodeError:
@@ -236,24 +203,102 @@ async def device_websocket(
             
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
-                device.battery_level = message.get("battery")
-                device.latitude = message.get("lat")
-                device.longitude = message.get("lng")
-                device.last_check_time = datetime.utcnow() # 更新最後連線時間
+
+                gps_time_str = message.get("GPStime")
+                try:
+                    gps_time = datetime.fromisoformat(gps_time_str) if gps_time_str else datetime.utcnow()
+                except ValueError:
+                    gps_time = datetime.utcnow()
+
+                route = message.get("Route")
+                altitude = message.get("Altitude")
+                address = message.get("Address")
+                satellites = message.get("Satellites")
+                conn_status = message.get("Connection_status", "online")
+
+                if not device.gps_time or gps_time > device.gps_time:
+                    device.battery_level = message.get("battery")
+                    device.latitude = message.get("lat")
+                    device.longitude = message.get("lng")
+                    device.route = route
+                    device.altitude = altitude
+                    device.address = address
+                    device.satellites = satellites
+                    device.gps_time = gps_time
                 
-                # 寫入歷史座標紀錄
+                device.last_check_time = datetime.utcnow()
+                
                 if message.get("lat") and message.get("lng"):
                     db.execute(text("""
-                        INSERT INTO device_location_history (device_id, latitude, longitude, battery_level)
-                        VALUES (:d_id, :lat, :lng, :bat)
+                        INSERT INTO device_location_history 
+                        (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
+                        VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
                     """), {
                         "d_id": device.id, 
                         "lat": message.get("lat"), 
                         "lng": message.get("lng"), 
-                        "bat": message.get("battery")
+                        "bat": message.get("battery"),
+                        "route": route,
+                        "alt": altitude,
+                        "addr": address,
+                        "sat": satellites,
+                        "gps_time": gps_time,
+                        "conn_status": conn_status
                     })
                 
                 db.commit()
+
+                sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
+                sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
+                
+                sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
+                sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
+                
+                # 判斷當前伺服器時間是否在休眠區間
+                current_time = datetime.utcnow().time()
+                try:
+                    s_hr, s_min = map(int, sleep_start_str.split(':'))
+                    e_hr, e_min = map(int, sleep_end_str.split(':'))
+                    start_t = time(s_hr, s_min)
+                    end_t = time(e_hr, e_min)
+                    
+                    is_sleeping = False
+                    if start_t <= end_t:
+                        is_sleeping = start_t <= current_time <= end_t
+                    else: # 跨夜情況 (例如 22:00 到 06:00)
+                        is_sleeping = current_time >= start_t or current_time <= end_t
+                except Exception as e:
+                    logger.error(f"解析休眠時間錯誤: {e}")
+                    is_sleeping = False
+
+                # 若不在休眠期間，且有連線到 MSSQL，則插入資料
+                if not is_sleeping and message.get("lat") and message.get("lng"):
+                    # 手動取得 MSSQL Session
+                    mssql_db = next(get_mssql_db())
+                    if mssql_db:
+                        try:
+                            mssql_db.execute(text("""
+                                INSERT INTO GPSLocationHistory 
+                                (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
+                                VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
+                            """), {
+                                "dev_id": device.android_id, 
+                                "route": route,
+                                "bat": message.get("battery"),
+                                "lat": message.get("lat"),
+                                "lng": message.get("lng"),
+                                "alt": altitude,
+                                "addr": address,
+                                "sat": satellites,
+                                "gps_time": gps_time,
+                                "conn_status": conn_status
+                            })
+                            mssql_db.commit()
+                        except Exception as e:
+                            logger.error(f"寫入 MSSQL 失敗: {e}")
+                            mssql_db.rollback()
+                        finally:
+                            mssql_db.close()
                 
                 await websocket.send_json({
                     "type": "status_update_ack", 

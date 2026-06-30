@@ -102,7 +102,7 @@ async def get_statistics(
 @router.get("/statistics/applications/{app_id}")
 async def get_app_statistics(
     app_id: str,
-    period: str = Query("week", regex="^(day|week|month|year)$"),
+    period: str = Query("week", pattern="^(day|week|month|year)$"),
     db: Session = Depends(get_db),
     token_payload: dict = Depends(verify_token)
 ):

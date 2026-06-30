@@ -4,7 +4,6 @@ import json
 from datetime import datetime
 import logging
 
-# 設定詳細的 Logger
 logger = logging.getLogger("v2.websocket")
 logger.setLevel(logging.INFO)
 
@@ -93,6 +92,8 @@ async def websocket_endpoint(
         while True:
             data = await websocket.receive_text()
             logger.info(f"[WS 收到訊息] 來自 IP: {client_ip} | 內容: {data}")
+            connected_ips = [info['client_ip'] for info in manager.device_connections.values()]
+            logger.info(f"📋 [App WS 當前連線清單] 總數: {len(connected_ips)} | IP列表: {connected_ips}")
             message = json.loads(data)
             
             if message.get("type") == "heartbeat":
