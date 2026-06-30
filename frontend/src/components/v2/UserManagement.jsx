@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Trash2, Shield, Mail, Clock } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -27,24 +27,45 @@ const UserManagement = () => {
     }
   };
 
-  const handleCreateUser = async (e) => {
+const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!newUser.username || !newUser.password) {
-      alert('請填寫帳號與密碼');
-      return;
+
+    if (!newUser.username || !newUser.password || !newUser.email) {
+        alert('請填寫完整的帳號、密碼與電子郵件！');
+        return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newUser.email)) {
+        alert('請輸入有效的電子郵件格式！ (例如: example@domain.com)');
+        return;
     }
 
     try {
-      await api.createUser(newUser);
-      setShowCreateModal(false);
-      setNewUser({ username: '', password: '', email: '' });
-      fetchUsers();
-      alert('使用者建立成功');
+        await api.createUser(newUser);
+        setShowCreateModal(false);
+        setNewUser({ username: '', password: '', email: '' });
+        fetchUsers();
+        alert('使用者建立成功');
     } catch (err) {
-      console.error('Failed to create user:', err);
-      alert('建立失敗，帳號可能已存在');
+        console.error('Failed to create user:', err);
+        
+        let errorMsg = '建立失敗，請稍後再試';
+        if (err.response && err.response.data && err.response.data.detail) {
+            const detail = err.response.data.detail;
+            
+            if (detail === "帳號已被註冊") {
+                errorMsg = '建立失敗：此帳號已被註冊！';
+            } else if (detail === "電子郵件已被註冊") {
+                errorMsg = '建立失敗：此電子郵件已被註冊！';
+            } else {
+                errorMsg = `建立失敗：${detail}`;
+            }
+        }
+        
+        alert(errorMsg);
     }
-  };
+};
 
   const handleDeleteUser = async (user) => {
     if (user.username === 'admin') {
@@ -208,7 +229,7 @@ const UserManagement = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700">
-                        Email
+                        Email <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="email"

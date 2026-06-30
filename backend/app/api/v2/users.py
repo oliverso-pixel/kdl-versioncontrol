@@ -17,11 +17,16 @@ async def get_users(db: Session = Depends(get_db), token: dict = Depends(verify_
 @router.post("/admin/users")
 async def create_user(data: dict, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
     if db.query(AdminUser).filter(AdminUser.username == data["username"]).first():
-        raise HTTPException(status_code=400, detail="Username already exists")
+        raise HTTPException(status_code=400, detail="帳號已被註冊")
+    
+    user_email = data.get("email", "").strip()
+    if user_email:
+        if db.query(AdminUser).filter(AdminUser.email == user_email).first():
+            raise HTTPException(status_code=400, detail="電子郵件已被註冊")
     
     new_user = AdminUser(
         username=data["username"],
-        email=data.get("email", ""),
+        email=user_email,
         hashed_password=hash_password(data["password"]),
         is_active=True
     )

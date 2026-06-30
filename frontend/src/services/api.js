@@ -37,7 +37,13 @@ class ApiService {
           this.clearToken();
           window.location.href = '/login';
         }
-        throw new Error(`API Error: ${response.status}`);
+        
+        const errorData = await response.json().catch(() => ({}));
+        
+        const error = new Error(`API Error: ${response.status}`);
+        error.response = { data: errorData };
+        
+        throw error;
       }
 
       return await response.json();
@@ -392,6 +398,30 @@ class ApiService {
     return this.request('/api/report-download', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Device V2 APIs
+  async getAllDevicesV2() {
+    return this.request('/api/v2/admin/devices');
+  }
+
+  async forgotPassword(email) {
+    return this.request('/api/v2/auth/forgotPassword', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token, newPassword) {
+    return this.request('/api/v2/auth/resetPassword', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({ 
+        token: token, 
+        new_password: newPassword 
+      }),
     });
   }
 
