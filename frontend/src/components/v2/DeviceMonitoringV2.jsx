@@ -9,11 +9,9 @@ import LocationMap from "./LocationMap";
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  
   // 篩選條件狀態 (預設: 線上 / 啟用中)
   const [filterOnline, setFilterOnline] = useState('online'); // 'all', 'online', 'offline'
   const [filterActive, setFilterActive] = useState('active'); // 'all', 'active', 'inactive'
-  
   const [storeApps, setStoreApps] = useState([]);
   const [selectedInstallApp, setSelectedInstallApp] = useState("");
 
@@ -26,8 +24,6 @@ const DeviceMonitoringV2 = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [showPopup, setShowPopup] = useState(false);
   const [startDate, setStartDate] = useState(new Date());
-
-  
   // 修改設備 Modal 狀態
   const [showEditModal, setShowEditModal] = useState(false);
   const [editFormData, setEditFormData] = useState({ id: null, device_model: '', notes: '' });
@@ -53,8 +49,8 @@ const DeviceMonitoringV2 = () => {
       const res = await api.getStoreApps();
       const filteredApps = res.data.filter(app => app.app_id !== 'com.kowloondairy.mdmapp');
       setStoreApps(filteredApps);
-      if(filteredApps.length > 0) setSelectedInstallApp(filteredApps[0].app_id);
-    } catch (err) {}
+      if (filteredApps.length > 0) setSelectedInstallApp(filteredApps[0].app_id);
+    } catch (err) { }
   };
 
   const openDeviceDetails = async (device) => {
@@ -67,7 +63,7 @@ const DeviceMonitoringV2 = () => {
       ]);
       setInstalledApps(apps);
       setLocationHistory(history);
-    } catch (err) {} finally {
+    } catch (err) { } finally {
       setLoadingDetails(false);
     }
   };
@@ -86,19 +82,19 @@ const DeviceMonitoringV2 = () => {
 
   // --- CRUD 操作邏輯 ---
   const handleToggleActive = async (device) => {
-    if(!window.confirm(`確定要${device.is_active ? '停用' : '啟用'}設備 ${device.android_id} 嗎？`)) return;
+    if (!window.confirm(`確定要${device.is_active ? '停用' : '啟用'}設備 ${device.android_id} 嗎？`)) return;
     try {
       await api.updateDevice(device.id, { is_active: !device.is_active });
       fetchDevices();
-    } catch(e) { alert('操作失敗'); }
+    } catch (e) { alert('操作失敗'); }
   };
 
   const handleDeleteDevice = async (device) => {
-    if(!window.confirm(`確定要刪除設備 ${device.android_id} 嗎？此操作將清除其所有資料且不可逆！`)) return;
+    if (!window.confirm(`確定要刪除設備 ${device.android_id} 嗎？此操作將清除其所有資料且不可逆！`)) return;
     try {
       await api.deleteDevice(device.id);
       fetchDevices();
-    } catch(e) { alert('刪除失敗'); }
+    } catch (e) { alert('刪除失敗'); }
   };
 
   const handleEditSubmit = async (e) => {
@@ -108,19 +104,19 @@ const DeviceMonitoringV2 = () => {
       setShowEditModal(false);
       fetchDevices();
       alert('✅ 設備資訊已更新');
-    } catch(e) { alert('更新失敗'); }
+    } catch (e) { alert('更新失敗'); }
   };
 
   // --- 綜合篩選邏輯 ---
   const filteredDevices = allDevices.filter(device => {
     const matchText = device.android_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      (device.device_model && device.device_model.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchOnline = filterOnline === 'all' ? true : 
-                        filterOnline === 'online' ? device.is_online : !device.is_online;
-    
-    const matchActive = filterActive === 'all' ? true : 
-                        filterActive === 'active' ? device.is_active : !device.is_active;
+      (device.device_model && device.device_model.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const matchOnline = filterOnline === 'all' ? true :
+      filterOnline === 'online' ? device.is_online : !device.is_online;
+
+    const matchActive = filterActive === 'all' ? true :
+      filterActive === 'active' ? device.is_active : !device.is_active;
 
     return matchText && matchOnline && matchActive;
   });
@@ -144,7 +140,7 @@ const DeviceMonitoringV2 = () => {
           總計: {allDevices.length} | 線上: {allDevices.filter(d => d.is_online).length}
         </span>
       </div>
-      
+
       {/* 篩選與搜尋工具列 */}
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6 flex flex-wrap gap-4 items-center border border-gray-200">
         <div className="flex-1 relative min-w-[250px]">
@@ -159,7 +155,7 @@ const DeviceMonitoringV2 = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        
+
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600 font-medium">連線狀態:</label>
           <select value={filterOnline} onChange={e => setFilterOnline(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm">
@@ -182,51 +178,95 @@ const DeviceMonitoringV2 = () => {
       {/* 設備列表 */}
       <div className="grid grid-cols-1 gap-4">
         {filteredDevices.map(device => (
-          <div key={device.id} className={`bg-white p-4 rounded-lg shadow flex items-center justify-between border-l-4 transition ${device.is_active ? 'border-indigo-500' : 'border-red-500 opacity-75'}`}>
-            
-            <div className="flex items-center space-x-4 w-1/4">
-              <div className={`w-3 h-3 rounded-full ${device.is_online ? 'bg-green-500 shadow-md' : 'bg-gray-300'}`} title={device.is_online ? '上線中' : '離線'}></div>
-              <div>
-                <h3 className="font-bold text-lg text-gray-900 flex items-center">
-                  {device.device_model || '未知設備'}
-                  {!device.is_active && <span className="ml-2 bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded border border-red-200">已停用</span>}
+          <div
+            key={device.id}
+            className={`bg-white p-4 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between border-l-4 gap-4 transition ${device.is_active ? 'border-indigo-500' : 'border-red-500 opacity-75'
+              }`}
+          >
+            <div className="flex items-center space-x-4 w-full md:w-1/4 min-w-0">
+              <div
+                className={`w-3 h-3 rounded-full shrink-0 ${device.is_online ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-300'}`}
+                title={device.is_online ? '上線中' : '離線'}
+              ></div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-base md:text-lg text-gray-900 flex items-wrap items-center gap-1.5">
+                  <span className="truncate">{device.device_model || '未知設備'}</span>
+                  {!device.is_active && (
+                    <span className="shrink-0 bg-red-100 text-red-700 text-[10px] md:text-xs px-2 py-0.5 rounded border border-red-200">
+                      已停用
+                    </span>
+                  )}
                 </h3>
-                <div className="flex items-center text-xs text-gray-500 mt-1">
-                  <Smartphone className="w-3 h-3 mr-1"/> {device.android_id}
+                <div className="flex items-center text-xs text-gray-500 mt-1 font-mono truncate">
+                  <Smartphone className="w-3.5 h-3.5 mr-1 shrink-0" />
+                  <span className="truncate">{device.android_id}</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-center space-x-8 w-1/3">
-              <div className="flex flex-col items-center" title="最後通訊時間">
-                <span className="text-xs font-semibold text-gray-700">最後連線</span>
-                <span className="text-xs text-gray-500 mt-1">
-                  {device.last_check_time ? new Date(device.last_check_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }) : '從未連線'}
+            <div className="flex items-center justify-start md:justify-center space-x-8 md:space-x-8 w-full md:w-1/3 py-2 md:py-0 border-y border-gray-50 md:border-none">
+              <div className="flex flex-col items-start md:items-center" title="最後通訊時間">
+                <span className="text-[11px] font-semibold text-gray-400 md:text-gray-700 uppercase tracking-wider">最後連線</span>
+                <span className="text-xs text-gray-600 md:text-gray-500 mt-1 font-mono">
+                  {device.last_check_time && !isNaN(new Date(device.last_check_time).getTime())
+                    ? new Date(device.last_check_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : '從未連線'}
                 </span>
               </div>
-              <div className="flex flex-col items-center" title="電量">
-                <Battery className={`w-5 h-5 ${device.battery_level > 20 ? 'text-green-500' : 'text-red-500'}`} />
-                <span className="text-xs text-gray-600 font-bold mt-1">{device.battery_level ? `${device.battery_level}%` : '-'}</span>
+              <div className="flex flex-col items-start md:items-center" title="電量">
+                <span className="text-[11px] font-semibold text-gray-400 md:text-gray-700 uppercase tracking-wider md:hidden mb-1">設備電量</span>
+                <div className="flex items-center space-x-1.5 md:flex-col md:space-x-0">
+                  <Battery className={`w-5 h-5 shrink-0 ${device.battery_level > 20 ? 'text-green-500' : 'text-red-500'}`} />
+                  <span className="text-xs text-gray-700 md:text-gray-600 font-bold md:mt-1">
+                    {device.battery_level !== null && device.battery_level !== undefined ? `${device.battery_level}%` : '-'}
+                  </span>
+                </div>
               </div>
             </div>
-            
-            <div className="flex justify-end gap-2 w-1/3">
-              <button onClick={() => { setEditFormData({ id: device.id, device_model: device.device_model || '', notes: device.notes || '' }); setShowEditModal(true); }} className="p-2 text-gray-500 hover:text-indigo-600 bg-gray-50 rounded transition" title="修改資訊">
-                <Edit className="w-4 h-4"/>
-              </button>
-              <button onClick={() => handleToggleActive(device)} className={`p-2 rounded transition ${device.is_active ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50 bg-gray-50'}`} title={device.is_active ? "停用設備" : "啟用設備"}>
-                {device.is_active ? <ShieldOff className="w-4 h-4"/> : <Shield className="w-4 h-4"/>}
-              </button>
-              <button onClick={() => handleDeleteDevice(device)} className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 bg-gray-50 rounded transition" title="刪除設備">
-                <Trash2 className="w-4 h-4"/>
-              </button>
-              <button onClick={() => openDeviceDetails(device)} className="ml-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-4 py-2 border border-indigo-200 rounded text-sm transition shadow-sm">
+
+            <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-1/3">
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => { setEditFormData({ id: device.id, device_model: device.device_model || '', notes: device.notes || '' }); setShowEditModal(true); }}
+                  className="p-2.5 md:p-2 text-gray-500 hover:text-indigo-600 bg-gray-50 hover:bg-indigo-50 rounded-lg transition border border-gray-100"
+                  title="修改資訊"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleToggleActive(device)}
+                  className={`p-2.5 md:p-2 rounded-lg transition border ${device.is_active
+                    ? 'text-red-500 hover:bg-red-50 border-gray-100'
+                    : 'text-green-600 hover:bg-green-50 bg-gray-50 border-gray-100'
+                    }`}
+                  title={device.is_active ? "停用設備" : "啟用設備"}
+                >
+                  {device.is_active ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => handleDeleteDevice(device)}
+                  className="p-2.5 md:p-2 text-red-500 hover:text-red-700 hover:bg-red-50 bg-gray-50 border border-gray-100 rounded-lg transition"
+                  title="刪除設備"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                onClick={() => openDeviceDetails(device)}
+                className="flex-1 md:flex-none text-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-5 py-2.5 md:py-2 border border-indigo-200 rounded-xl md:rounded-lg text-sm md:text-sm transition shadow-sm active:scale-95"
+              >
                 遠端控制
               </button>
             </div>
           </div>
         ))}
-        {filteredDevices.length === 0 && <div className="text-center text-gray-500 py-10 bg-white rounded shadow border border-gray-100">找不到符合條件的設備</div>}
+
+        {filteredDevices.length === 0 && (
+          <div className="text-center text-gray-500 py-10 bg-white rounded-xl shadow-sm border border-gray-100">
+            找不到符合條件的設備
+          </div>
+        )}
       </div>
 
       {/* ===================== 修改設備資訊 Modal ===================== */}
@@ -237,11 +277,11 @@ const DeviceMonitoringV2 = () => {
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">設備顯示名稱 (型號)</label>
-                <input required type="text" className="mt-1 block w-full border border-gray-300 rounded p-2" value={editFormData.device_model} onChange={e => setEditFormData({...editFormData, device_model: e.target.value})} />
+                <input required type="text" className="mt-1 block w-full border border-gray-300 rounded p-2" value={editFormData.device_model} onChange={e => setEditFormData({ ...editFormData, device_model: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">管理員備註</label>
-                <textarea className="mt-1 block w-full border border-gray-300 rounded p-2" rows="3" value={editFormData.notes} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} placeholder="例如: 派發給哪位員工使用..."></textarea>
+                <textarea className="mt-1 block w-full border border-gray-300 rounded p-2" rows="3" value={editFormData.notes} onChange={e => setEditFormData({ ...editFormData, notes: e.target.value })} placeholder="例如: 派發給哪位員工使用..."></textarea>
               </div>
               <div className="flex justify-end gap-2 mt-6">
                 <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">取消</button>
@@ -258,7 +298,7 @@ const DeviceMonitoringV2 = () => {
           <div className="bg-white rounded-xl max-w-4xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="bg-indigo-600 px-6 py-4 flex justify-between items-center text-white">
               <div>
-                <h3 className="text-xl font-bold flex items-center"><Cpu className="mr-2"/> 設備控制中心</h3>
+                <h3 className="text-xl font-bold flex items-center"><Cpu className="mr-2" /> 設備控制中心</h3>
                 <p className="text-indigo-200 text-sm">{selectedDevice.device_model} ({selectedDevice.android_id})</p>
               </div>
               <button onClick={() => setSelectedDevice(null)} className="text-white hover:text-gray-200 text-2xl font-bold">×</button>
@@ -271,22 +311,22 @@ const DeviceMonitoringV2 = () => {
                     <h4 className="font-bold text-gray-800">遠端指令 (MDM 控制)</h4>
                     {!isOnline && <span className="text-xs text-red-500 font-bold bg-red-50 px-2 py-1 rounded">設備離線中，指令已停用</span>}
                   </div>
-                  
+
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_restart')} className={`bg-red-50 text-red-700 hover:bg-red-100 p-3 rounded flex flex-col items-center justify-center border border-red-200 transition ${btnDisabledClass}`}>
-                      <RotateCcw className="w-6 h-6 mb-1"/> 遠端重啟設備
+                      <RotateCcw className="w-6 h-6 mb-1" /> 遠端重啟設備
                     </button>
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('sync_apps')} className={`bg-blue-50 text-blue-700 hover:bg-blue-100 p-3 rounded flex flex-col items-center justify-center border border-blue-200 transition ${btnDisabledClass}`}>
-                      <DownloadCloud className="w-6 h-6 mb-1"/> 強制拉取更新
+                      <DownloadCloud className="w-6 h-6 mb-1" /> 強制拉取更新
                     </button>
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('fetch_logs')} className={`bg-gray-50 text-gray-700 hover:bg-gray-100 p-3 rounded flex flex-col items-center justify-center border border-gray-200 transition ${btnDisabledClass}`}>
-                      <SettingsIcon className="w-6 h-6 mb-1"/> 提取設備 Log
+                      <SettingsIcon className="w-6 h-6 mb-1" /> 提取設備 Log
                     </button>
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_play_sound')} className={`bg-yellow-50 text-yellow-700 hover:bg-yellow-100 p-3 rounded flex flex-col items-center justify-center border border-yellow-200 transition ${btnDisabledClass}`}>
-                      <Volume2 className="w-6 h-6 mb-1"/> 播放尋找聲音
+                      <Volume2 className="w-6 h-6 mb-1" /> 播放尋找聲音
                     </button>
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_stop_sound')} className={`bg-green-50 text-green-700 hover:bg-green-100 p-3 rounded flex flex-col items-center justify-center border border-green-200 transition col-span-2 lg:col-span-1 ${btnDisabledClass}`}>
-                      <VolumeX className="w-6 h-6 mb-1"/> 停止聲音
+                      <VolumeX className="w-6 h-6 mb-1" /> 停止聲音
                     </button>
                   </div>
 
@@ -384,7 +424,7 @@ const DeviceMonitoringV2 = () => {
                         }
                       }}
                     />
-                    
+
                     {showPopup && (
                       <div className="modal-overlay">
                         <div className="modal-container">

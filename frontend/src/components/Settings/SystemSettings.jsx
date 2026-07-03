@@ -65,7 +65,7 @@ const SystemSettings = () => {
     <div>
       <h1 className="text-2xl font-semibold text-gray-900 mb-6">系統設定</h1>
 
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white shadow rounded-lg overflow-x-auto">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
             {tabs.map((tab) => {
