@@ -40,6 +40,11 @@ const Login = ({ onLogin }) => {
     }
   };
 
+  const handleForgotPassword = (e) => {
+    e.preventDefault();
+    alert('請聯絡系統管理員重設密碼，或導向重設密碼頁面。');
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow">
@@ -57,6 +62,14 @@ const Login = ({ onLogin }) => {
             <div className="space-y-4">
               <input type="text" required className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-indigo-500" placeholder="帳號 (Username)" value={username} onChange={(e) => setUsername(e.target.value)} />
               <input type="password" required className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-indigo-500" placeholder="密碼 (Password)" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <div className="flex justify-end mt-2">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
+                >
+                  忘記密碼？
+                </Link>
+              </div>
             </div>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}

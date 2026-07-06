@@ -5,6 +5,7 @@ import {
   Settings, LogOut, Menu, Bell
 } from 'lucide-react';
 import Login from './components/Auth/Login';
+import ForgotPassword from './components/v2/ForgotPassword';
 import Dashboard from './components/Dashboard/Dashboard';
 import ApplicationManagement from './components/Applications/ApplicationManagement';
 import BranchManagement from './components/Branches/BranchManagement';
@@ -169,6 +170,12 @@ function App() {
         <Route
           path="/login"
           element={!isAuthenticated ? <Login onLogin={handleLogin} /> : <Navigate to="/" replace />}
+        />
+
+        {/* 忘記密碼頁面 */}
+        <Route
+          path="/forgot-password"
+          element={!isAuthenticated ? <ForgotPassword /> : <Navigate to="/" replace />}
         />
 
         <Route 
