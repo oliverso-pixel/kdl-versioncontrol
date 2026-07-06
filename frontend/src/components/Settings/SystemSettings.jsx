@@ -11,6 +11,10 @@ const SystemSettings = () => {
       retention_days: 90,
       enable_auto_cleanup: true
     },
+    mssql_sync: {
+      sleep_start: '00:00',
+      sleep_end: '06:00'
+    },
     security: {
       api_key_expiry: 30,
       max_login_attempts: 5,

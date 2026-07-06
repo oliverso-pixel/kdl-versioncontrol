@@ -22,7 +22,7 @@ const StoreManagement = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // 表單資料狀態
-  const [appFormData, setAppFormData] = useState({ app_id: '', name: '', description: '' });
+  const [appFormData, setAppFormData] = useState({ app_id: '', name: '', description: '', default_config: '{}'});
   const [branchFormData, setBranchFormData] = useState({ branch_name: '', description: '' });
   const [versionFormData, setVersionFormData] = useState({
     branch_id: '',
@@ -75,17 +75,33 @@ const StoreManagement = () => {
   const handleAppSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    let parsedConfig = null;
     try {
+      if (appFormData.default_config && appFormData.default_config.trim() !== '') {
+        parsedConfig = JSON.parse(appFormData.default_config);
+      }
+    } catch (error) {
+      alert('「預設 App 配置」必須是合法的 JSON 格式！例如: {"api_url": "http://...", "sync_interval": 300}');
+      return;
+    }
+
+    try {
+      const payload = {
+        ...appFormData,
+        default_config: parsedConfig
+      };
+
       if (isEditingApp) {
         await api.updateApplication(rawApp.id, appFormData);
         alert('應用程式已成功更新');
-        await openAppDetails(rawApp.app_id); // 刷新詳情
+        await openAppDetails(rawApp.app_id);
       } else {
         await api.createApplication(appFormData);
         alert('應用程式已成功建立');
       }
       setShowAppModal(false);
-      fetchApps(); // 刷新首頁列表
+      fetchApps();
     } catch (err) {
       alert('儲存失敗，請檢查輸入資料是否重複');
     } finally {
@@ -245,7 +261,7 @@ const StoreManagement = () => {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => window.open(b.latest_version.download_url)} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-2 rounded flex items-center shadow-sm transition text-sm">
-                      <Download className="w-4 h-4 mr-1"/> 下載 APK
+                      <Download className="w-4 h-4 mr-1"/> 下載 APK說明描述
                     </button>
                     {/* 加入切換歷史紀錄的按鈕 */}
                     <button onClick={() => toggleHistory(b.branch_name)} className="bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-2 rounded transition text-sm">
@@ -321,6 +337,19 @@ const StoreManagement = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700">描述</label>
                   <textarea className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3" value={appFormData.description} onChange={e => setAppFormData({...appFormData, description: e.target.value})}></textarea>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700">預設 App 配置 (Default Config - JSON 格式)</label>
+                  <textarea
+                    rows={5}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 font-mono text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder='例如:&#10;{&#10;  "sync_data_interval": 300,&#10;  "enable_debug_log": false&#10;}'
+                    value={appFormData.default_config}
+                    onChange={(e) => setAppFormData({ ...appFormData, default_config: e.target.value })}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    當新裝置首次安裝或同步此 App 時，系統會自動分配這份基礎設定檔給該裝置。
+                  </p>
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
                   <button type="button" onClick={() => setShowAppModal(false)} className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-50">取消</button>

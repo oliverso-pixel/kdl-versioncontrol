@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
@@ -10,6 +10,7 @@ class Application(Base):
     app_id = Column(String(100), unique=True, index=True, nullable=False)
     name = Column(String(200), nullable=False)
     description = Column(String(500))
+    default_config = Column(JSON, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

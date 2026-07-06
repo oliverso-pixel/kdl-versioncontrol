@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
-from datetime import datetime, time
+from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
 from ...models import Device, Application, Branch, Version, SystemSetting
@@ -84,7 +84,11 @@ async def sync_device_apps(
     apps: List[dict], # [{"app_id": "com.app.a", "version_code": 100}]
     db: Session = Depends(get_db)
 ):
-    """6. 確保裝置已安裝 App 清單為最新狀態"""
+
+    """確保裝置已安裝 App 清單為最新狀態"""
+
+    logger.info(f"📥 [MDM API sync-apps] 來自設備: {android_id} | 接收到的 App 清單 JSON: {json.dumps(apps, ensure_ascii=False)}")
+
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -99,6 +103,22 @@ async def sync_device_apps(
                    VALUES (:d_id, :a_id, :v_code)"""),
                 {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
             )
+            
+            existing_config = db.execute(
+                text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+                {"d_id": device.id, "a_id": app_model.app_id}
+            ).first()
+            
+            if not existing_config and app_model.default_config:
+                db.execute(
+                    text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+                       VALUES (:d_id, :a_id, :conf, NOW())"""),
+                    {
+                        "d_id": device.id, 
+                        "a_id": app_model.app_id, 
+                        "conf": json.dumps(app_model.default_config)
+                    }
+                )
     db.commit()
     return {"status": "synced"}
 
@@ -305,6 +325,36 @@ async def device_websocket(
                     "status": "success",
                     "updated_at": datetime.utcnow().isoformat()
                 })
+
+            elif message.get("type") == "report_config":
+                target_app_id = message.get("app_id")
+                new_config = message.get("config_data")
+                
+                if target_app_id and new_config:
+                    try:
+                        config_json = json.dumps(new_config)
+                        # 更新資料庫中的 Config
+                        db.execute(text("""
+                            INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+                            VALUES (:d_id, :a_id, :conf, NOW())
+                            ON DUPLICATE KEY UPDATE config_data = :conf, updated_at = NOW()
+                        """), {
+                            "d_id": device.id, 
+                            "a_id": target_app_id, 
+                            "conf": config_json
+                        })
+                        db.commit()
+                        
+                        # 回傳 Ack 給設備，讓設備把本地佇列 (Local Queue) 的 is_synced 標記為 true
+                        await websocket.send_json({
+                            "type": "report_config_ack",
+                            "app_id": target_app_id,
+                            "status": "success"
+                        })
+                        logger.info(f"🔄 [Config 同步] 設備 {android_id} 已更新 {target_app_id} 的設定")
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"❌ [Config 同步錯誤] 設備 {android_id} 更新設定失敗: {e}")
                 
             elif message.get("type") == "heartbeat":
                 await websocket.send_json({"type": "heartbeat_ack"})
@@ -575,10 +625,56 @@ async def get_device_location_history(android_id: str, limit: int = 50, db: Sess
     history = db.execute(query, {"d_id": device.id, "limit": limit}).fetchall()
     return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.created_at} for row in history]
 
+@router.get("/admin/devices/{android_id}/mssql-location-history")
+async def get_mssql_location_history(
+    android_id: str, 
+    target_date: date = Query(..., description="查詢日期，格式 YYYY-MM-DD"),
+    db: Session = Depends(get_db), 
+    token: dict = Depends(verify_token)
+):
+    """[V2 Web Panel] 從 MSSQL 取得指定日期的 GPS 軌跡"""
+    
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    mssql_db = next(get_mssql_db())
+    if not mssql_db:
+        raise HTTPException(status_code=503, detail="MSSQL connection is not configured")
+        
+    try:
+        query = text("""
+            SELECT Latitude, Longitude, Battery_level, GPStime, Connection_status, Route 
+            FROM DeviceLocationHistory 
+            WHERE DeviceID = :d_id 
+              AND CAST(GPStime AS DATE) = :t_date
+            ORDER BY GPStime ASC
+        """)
+        
+        history = mssql_db.execute(query, {"d_id": android_id, "t_date": target_date}).fetchall()
+        
+        return [
+            {
+                "lat": float(row.Latitude) if row.Latitude else None, 
+                "lng": float(row.Longitude) if row.Longitude else None, 
+                "battery": row.Battery_level, 
+                "time": row.GPStime.isoformat() if row.GPStime else None,
+                "status": row.Connection_status,
+                "route": row.Route
+            } for row in history if row.Latitude and row.Longitude
+        ]
+    except Exception as e:
+        logger.error(f"查詢 MSSQL 失敗: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        mssql_db.close()
+
 # ----------------- All Device ----------------- #
 @router.get("/admin/devices")
 async def get_all_devices_v2(db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+
     """[V2 Web Panel] 取得所有裝置 (包含停用與離線)，供後台清單與篩選使用"""
+    
     devices = db.query(Device).order_by(Device.last_check_time.desc()).all()
     result = []
     for d in devices:
@@ -597,3 +693,63 @@ async def get_all_devices_v2(db: Session = Depends(get_db), token: dict = Depend
             "notes": d.notes
         })
     return result
+
+# ----------------- Device App config ----------------- #
+@router.get("/admin/devices/{android_id}/configs/{app_id}")
+async def get_device_app_config(android_id: str, app_id: str, db: Session = Depends(get_db)):
+
+    """[Web Panel] 取得指定設備的指定 App 設定"""
+
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    query = text("SELECT config_data FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id")
+    result = db.execute(query, {"d_id": device.id, "a_id": app_id}).first()
+    
+    return {"status": "success", "config": json.loads(result[0]) if result else {}}
+
+@router.post("/admin/devices/{android_id}/configs/{target_app_id}")
+async def update_device_app_config(
+    android_id: str, 
+    target_app_id: str, 
+    config_data: dict, 
+    db: Session = Depends(get_db)
+):
+    """[Web Panel] 修改設定並推播給線上設備"""
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+        
+    # 寫入資料庫
+    config_json = json.dumps(config_data)
+    db.execute(text("""
+        INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+        VALUES (:d_id, :a_id, :conf, NOW())
+        ON DUPLICATE KEY UPDATE config_data = :conf, updated_at = NOW()
+    """), {"d_id": device.id, "a_id": target_app_id, "conf": config_json})
+    db.commit()
+
+    # 如果設備在線上，透過 WebSocket 即時推播指令
+    payload = {
+        "action": "update_config",
+        "target_app": target_app_id,
+        "data": config_data
+    }
+    await ws_manager.send_command(android_id, payload)
+    
+    return {"status": "success", "message": "Config saved and push attempted"}
+
+@router.get("/devices/{android_id}/sync-configs")
+async def device_pull_configs(android_id: str, api_key: str, db: Session = Depends(get_db)):
+
+    """[App 端] MDM App 開機或重連時，主動拉取所有屬於此設備的 Config"""
+
+    device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+    if not device:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    configs = db.execute(text("SELECT app_id, config_data FROM device_app_configs WHERE device_id = :d_id"), {"d_id": device.id}).fetchall()
+    
+    result = {row.app_id: json.loads(row.config_data) for row in configs}
+    return {"status": "success", "configs": result}

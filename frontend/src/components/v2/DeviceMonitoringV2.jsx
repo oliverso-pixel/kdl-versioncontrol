@@ -17,6 +17,9 @@ const DeviceMonitoringV2 = () => {
   const [storeApps, setStoreApps] = useState([]);
   const [selectedInstallApp, setSelectedInstallApp] = useState("");
 
+  const [availableBranches, setAvailableBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
+
   // Modal 狀態
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [installedApps, setInstalledApps] = useState([]);
@@ -328,14 +331,13 @@ const DeviceMonitoringV2 = () => {
 
                   <div className="mb-4">
                     <DatePicker
-                      ref={datePickerRef} // 3. 綁定 ref
+                      ref={datePickerRef}
                       selected={selectedDate}
                       onChange={(date) => {
                         if (!date) return;
                         setSelectedDate(date);
                       }}
                       onSelect={(date) => {
-                        // 點擊日曆格子的邏輯保持不變
                         const hasData = Array.isArray(locationHistory) && locationHistory.some(
                           (loc) => new Date(loc.time).toDateString() === date.toDateString()
                         );
@@ -348,20 +350,14 @@ const DeviceMonitoringV2 = () => {
                       dateFormat="yyyy-MM-dd"
                       placeholderText="查詢日期"
 
-                      // 4. 移除原來的 readonly，允許手動輸入
-                      // className="w-full text-center" 
-
                       shouldCloseOnSelect={true}
 
-                      // 5. 核心修改：按下 Enter 時，檢查資料、觸發失焦並強制關閉日曆
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           const inputValue = e.target.value;
                           const parsedDate = new Date(inputValue);
 
-                          // 檢查手動輸入的字串是否為有效日期
                           if (!isNaN(parsedDate.getTime())) {
-                            // 執行您原有的歷史資料檢查邏bles
                             const hasData = Array.isArray(locationHistory) && locationHistory.some(
                               (loc) => new Date(loc.time).toDateString() === parsedDate.toDateString()
                             );
@@ -372,15 +368,13 @@ const DeviceMonitoringV2 = () => {
                               setShowPopup(true);
                             }
 
-                            // 同步更新狀態
                             setSelectedDate(parsedDate);
                           }
 
-                          // ✨ 強制關閉 DatePicker 面板並讓輸入框失焦
                           if (datePickerRef.current) {
-                            datePickerRef.current.setOpen(false); // 關閉面板
+                            datePickerRef.current.setOpen(false);
                           }
-                          e.target.blur(); // 輸入框失焦
+                          e.target.blur();
                         }
                       }}
                     />
