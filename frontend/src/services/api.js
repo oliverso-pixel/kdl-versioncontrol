@@ -37,12 +37,12 @@ class ApiService {
           this.clearToken();
           window.location.href = '/login';
         }
-        
+
         const errorData = await response.json().catch(() => ({}));
-        
+
         const error = new Error(`API Error: ${response.status}`);
         error.response = { data: errorData };
-        
+
         throw error;
       }
 
@@ -255,7 +255,6 @@ class ApiService {
 
     await this.setToken(data.access_token);
 
-    localStorage.setItem('apiMode', 'v2');
     return data;
   }
 
@@ -420,9 +419,9 @@ class ApiService {
     return this.request('/api/v2/auth/resetPassword', {
       method: 'POST',
       skipAuth: true,
-      body: JSON.stringify({ 
-        token: token, 
-        new_password: newPassword 
+      body: JSON.stringify({
+        token: token,
+        new_password: newPassword
       }),
     });
   }

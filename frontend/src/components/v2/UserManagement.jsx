@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, Mail, Clock, Unlock, ShieldAlert } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -34,7 +34,7 @@ const UserManagement = () => {
   const handleCreateUser = async (e) => {
     e.preventDefault();
 
-    if(!isSuperuser) {
+    if (!isSuperuser) {
       alert('您沒有權限建立新使用者，請聯絡超級管理員！');
       return;
     }
@@ -105,20 +105,24 @@ const UserManagement = () => {
     }
   };
 
-  const handleUnlockUser = async (user) => {
-    const confirmUnlock = window.confirm(`確定要解鎖使用者「${user.username}」嗎？`);
-    if (!confirmUnlock) return;
+  const handleToggleUserActive = async (user) => {
+    const actionText = user.is_active ? '停用' : '啟用';
+
+    const confirmToggle = window.confirm(`確定要將使用者「${user.username}」${actionText} 嗎？`);
+    if (!confirmToggle || currentUserId === user.id) return;
 
     try {
       await api.toggleUserActiveStatus(user.id);
-      alert('帳號解鎖成功！');
+
+      alert(`帳號${actionText}成功！`);
 
       if (typeof fetchUsers === 'function') {
         fetchUsers();
       }
     } catch (err) {
-      console.error('解鎖失敗:', err);
-      alert('解鎖失敗，請稍後再試。');
+      console.error(`${actionText}失敗:`, err);
+      const errorMsg = err.response?.data?.detail || `${actionText}失敗，請確認權限或稍後再試。`;
+      alert(errorMsg);
     }
   };
 
@@ -230,19 +234,22 @@ const UserManagement = () => {
                 </td>
                 {/* 操作欄位 */}
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {!user.is_active && (
+                  {String(currentUserId) !== String(user.id) && !user.is_superuser && (
                     <button
-                      onClick={() => handleUnlockUser(user)}
-                      className="text-indigo-600 hover:text-indigo-900 mr-2"
-                      title="解鎖帳號"
+                      onClick={() => handleToggleUserActive(user)}
+                      className={`transition-colors p-1 rounded ${user.is_active
+                        ? 'text-slate-600 hover:text-slate-900 mr-2'
+                        : 'text-indigo-600 hover:text-indigo-900 mr-2'
+                        }`}
+                      title={user.is_active ? "停用/鎖定帳號" : "啟用/解鎖帳號"}
                     >
-                      <Unlock className="h-5 w-5 " />
+                      {user.is_active ? <Lock className="h-5 w-5" /> : <Unlock className="h-5 w-5" />}
                     </button>
                   )}
                   {!user.is_superuser && (
                     <button
                       onClick={() => handlePromoteToSuperuser(user)}
-                      className="text-amber-600 hover:text-amber-900 transition-colors p-1 rounded hover:bg-amber-50"
+                      className="text-amber-600 hover:text-amber-900 mr-2"
                       title="提升為超級管理員"
                     >
                       <ShieldAlert className="h-5 w-5" />

@@ -21,6 +21,9 @@ const Login = ({ onLogin }) => {
       if (mode === 'v1') {
         data = await api.login(apiKey);
         localStorage.setItem('apiMode', 'v1');
+        localStorage.setItem('isSuperuser', 'false');
+        localStorage.setItem('userId', 'V1_API_KEY_USER');
+        localStorage.setItem('userName', `API_KEY_${apiKey.substring(0, 4)}...`);
       } else {
         data = await api.loginV2(username, password);
         isSuper = Boolean(data.user?.is_superuser);
@@ -38,17 +41,17 @@ const Login = ({ onLogin }) => {
         setError('權限不足，請確認帳號是否為 superuser');
       } else if (err.message) {
         if (err.message === "ACCOUNT_LOCKED_MAX_ATTEMPTS") {
-          setError("密碼錯誤次數過多，帳號已被系統自動停用。");
-        } 
+          setError("帳號已被系統停用，請聯繫管理員或自行重設密碼。");
+        }
         else if (err.message.startsWith("INVALID_PASSWORD_REMAINING_")) {
           const remaining = err.message.split("_").pop();
           setError(`帳號或密碼錯誤（剩餘嘗試次數：${remaining} 次）`);
-        } 
+        }
         else {
           setError(err.message);
         }
       } else {
-        setError('帳號或密碼錯誤，請重新輸入'); 
+        setError('帳號或密碼錯誤，請重新輸入');
       }
     } finally {
       setLoading(false);
