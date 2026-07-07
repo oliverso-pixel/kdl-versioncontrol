@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, Mail, Clock, Unlock } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock, Unlock, ShieldAlert } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
   const currentUserName = localStorage.getItem('userName');
   const currentUserId = localStorage.getItem('userId');
+  const isSuperuser = localStorage.getItem('isSuperuser') === 'true';
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -32,6 +33,11 @@ const UserManagement = () => {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
+
+    if(!isSuperuser) {
+      alert('您沒有權限建立新使用者，請聯絡超級管理員！');
+      return;
+    }
 
     if (!newUser.username || !newUser.password || !newUser.email) {
       alert('請填寫完整的帳號、密碼與電子郵件！');
@@ -70,39 +76,34 @@ const UserManagement = () => {
     }
   };
 
-const handleDeleteUser = async (user) => {
+  const handleDeleteUser = async (user) => {
 
-  if (String(user.id) === String(currentUserId)) {
-    alert('無法刪除當前登入的帳號！');
-    return;
-  }
-
-  if (!window.confirm(`確定要刪除使用者「${user.username}」嗎？`)) {
-    return;
-  }
-
-  if (user.is_superuser) {
-    const doubleCheck = window.confirm(
-      `警告：使用者「${user.username}」擁有超級管理員 (Superuser) 權限！\n刪除此帳號可能會影響系統管理。您真的確定要將其徹底刪除嗎？`
-    );
-    if (!doubleCheck) {
+    if (String(user.id) === String(currentUserId)) {
+      alert('無法刪除當前登入的帳號！');
       return;
     }
-  }
 
-  try {
-    await api.deleteUser(user.id);
-    alert(`使用者「${user.username}」已成功刪除！`);
-    
-    if (typeof fetchUsers === 'function') {
-      fetchUsers();
+    if (user.is_superuser) {
+      alert('無法刪除超級管理員 (Superuser) 帳號！');
+      return;
     }
-  } catch (err) {
-    console.error('Failed to delete user:', err);
-    const errorMsg = err.response?.data?.detail || '刪除失敗，請確認您的權限或稍後再試。';
-    alert(errorMsg);
-  }
-};
+
+    if (window.confirm(`確定要刪除使用者「${user.username}」嗎？`)) {
+      try {
+        await api.deleteUser(user.id);
+
+        alert('使用者刪除成功！');
+
+        if (typeof fetchUsers === 'function') {
+          fetchUsers();
+        }
+      } catch (err) {
+        console.error('Failed to delete user:', err);
+        const errorMsg = err.response?.data?.detail || '刪除失敗，請確認您的權限或稍後再試。';
+        alert(errorMsg);
+      }
+    }
+  };
 
   const handleUnlockUser = async (user) => {
     const confirmUnlock = window.confirm(`確定要解鎖使用者「${user.username}」嗎？`);
@@ -118,6 +119,21 @@ const handleDeleteUser = async (user) => {
     } catch (err) {
       console.error('解鎖失敗:', err);
       alert('解鎖失敗，請稍後再試。');
+    }
+  };
+
+  const handlePromoteToSuperuser = async (user) => {
+    const confirmPromote = window.confirm(`確定要將使用者「${user.username}」提升為超級管理員 (Superuser) 嗎？\n此操作將賦予該帳號最高系統權限！`);
+    if (!confirmPromote) return;
+
+    try {
+      await api.promoteUserToSuperuser(user.id);
+
+      alert(`已成功將「${user.username}」提升為超級管理員！`);
+      if (typeof fetchUsers === 'function') fetchUsers();
+    } catch (err) {
+      console.error('提升權限失敗:', err);
+      alert(err.response?.data?.detail || '操作失敗，請檢查權限。');
     }
   };
 
@@ -176,6 +192,15 @@ const handleDeleteUser = async (user) => {
                       <div className="text-sm font-medium text-gray-900">
                         {user.username}
                       </div>
+                      {user.is_superuser ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                          超級管理員
+                        </span>
+                      ) : (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
+                          一般管理員
+                        </span>
+                      )}
                       <div className="text-xs text-gray-500">ID: {user.id}</div>
                     </div>
                   </div>
@@ -214,7 +239,16 @@ const handleDeleteUser = async (user) => {
                       <Unlock className="h-5 w-5 " />
                     </button>
                   )}
-                  {String(currentUserId) !== String(user.id) && (
+                  {!user.is_superuser && (
+                    <button
+                      onClick={() => handlePromoteToSuperuser(user)}
+                      className="text-amber-600 hover:text-amber-900 transition-colors p-1 rounded hover:bg-amber-50"
+                      title="提升為超級管理員"
+                    >
+                      <ShieldAlert className="h-5 w-5" />
+                    </button>
+                  )}
+                  {String(currentUserId) !== String(user.id) && !user.is_superuser && (
                     <button
                       onClick={() => handleDeleteUser(user)}
                       className="text-red-600 hover:text-red-900"

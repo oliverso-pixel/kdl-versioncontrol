@@ -45,7 +45,6 @@ export default function ForgotPassword() {
         setMessage({ type: "", text: "" });
 
         try {
-            // 呼叫更新後的 api 方法
             const res = await api.resetPassword(token, password);
 
             console.log("密碼重設成功:", res);

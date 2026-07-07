@@ -78,3 +78,16 @@ async def toggle_user_active(user_id: int, db: Session = Depends(get_db), token:
     
     status_str = "啟用" if user.is_active else "停用"
     return {"status": "success", "detail": f"已將管理員 {user.username} 的狀態改為：{status_str}"}
+    
+@router.patch("/admin/users/{user_id}/promote")
+async def promote_user(user_id: int, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    if not token.get("is_superuser"):
+        raise HTTPException(status_code=403, detail="權限不足")
+        
+    user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="找不到該使用者")
+        
+    user.is_superuser = True  # 🚀 強制設為超級管理員
+    db.commit()
+    return {"status": "success", "detail": f"已將 {user.username} 提升為超級管理員"}

@@ -264,6 +264,7 @@ class ApiService {
   async createUser(data) { return this.request('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }); }
   async deleteUser(userId) { return this.request(`/api/v2/admin/users/${userId}`, { method: 'DELETE' }); }
   async toggleUserActiveStatus(userId) { return this.request(`/api/v2/admin/users/${userId}/toggle-active`, { method: 'PATCH' }); }
+  async promoteUserToSuperuser(userId) { return this.request(`/api/v2/admin/users/${userId}/promote`, { method: 'PATCH' }); }
 
   // Store Management V2
   async getStoreApps() { return this.request('/api/v2/admin/store/apps'); }
