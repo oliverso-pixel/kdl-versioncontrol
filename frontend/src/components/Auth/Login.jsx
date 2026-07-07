@@ -26,23 +26,33 @@ const Login = ({ onLogin }) => {
         isSuper = Boolean(data.user?.is_superuser);
         localStorage.setItem('apiMode', 'v2');
         localStorage.setItem('isSuperuser', isSuper ? 'true' : 'false');
+        localStorage.setItem('userId', String(data.user?.user_id || ''));
+        localStorage.setItem('userName', data.user?.user_name || '');
       }
 
       onLogin(data.access_token, mode, isSuper);
     } catch (err) {
+      console.error("登入失敗:", err);
+
       if (err.response?.status === 403) {
         setError('權限不足，請確認帳號是否為 superuser');
+      } else if (err.message) {
+        if (err.message === "ACCOUNT_LOCKED_MAX_ATTEMPTS") {
+          setError("密碼錯誤次數過多，帳號已被系統自動停用。");
+        } 
+        else if (err.message.startsWith("INVALID_PASSWORD_REMAINING_")) {
+          const remaining = err.message.split("_").pop();
+          setError(`帳號或密碼錯誤（剩餘嘗試次數：${remaining} 次）`);
+        } 
+        else {
+          setError(err.message);
+        }
       } else {
         setError('帳號或密碼錯誤，請重新輸入'); 
       }
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleForgotPassword = (e) => {
-    e.preventDefault();
-    alert('請聯絡系統管理員重設密碼，或導向重設密碼頁面。');
   };
 
   return (

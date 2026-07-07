@@ -10,13 +10,15 @@ from email.header import Header
 from pydantic import BaseModel, Field
 from jose import jwt, JWTError
 
-from ...database import get_db
+from ...database import get_db, SessionLocal
 from ...core.security import create_access_token 
 from ...config import settings
 from ...models.admin_user import AdminUser 
 
 router = APIRouter(tags=["Auth V2"])
 
+FAILED_LOGIN_CACHE = {}
+USED_RESET_TOKENS = set()
 # === Mailtrap SMTP 連線設定 ===
 SMTP_SERVER = "sandbox.smtp.mailtrap.io"
 SMTP_PORT = 2525  # Mailtrap 支援 2525, 587, 25 或 465
@@ -40,17 +42,45 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帳號或密碼錯誤")
 
+    current_username = str(user.username)
+    if not user.is_active or FAILED_LOGIN_CACHE.get(current_username, 0) >= 3:
+        user.is_active = False
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ACCOUNT_LOCKED_MAX_ATTEMPTS")
+
     password_bytes = form_data.password.encode('utf-8')
     hashed_bytes = user.hashed_password.encode('utf-8')
-        
     is_password_correct = bcrypt.checkpw(password_bytes, hashed_bytes)
         
     if not is_password_correct:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帳號或密碼錯誤")
+        # 在記憶體快取中累加該使用者的錯誤次數
+        if current_username not in FAILED_LOGIN_CACHE:
+            FAILED_LOGIN_CACHE[current_username] = 0
             
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帳號已停用")
-    
+        FAILED_LOGIN_CACHE[current_username] += 1
+        current_attempts = FAILED_LOGIN_CACHE[current_username]
+        
+        print(f"🔥 [記憶體計數除錯] 使用者 {current_username} 錯誤次數已累積至: {current_attempts}")
+
+        # 判斷是否達到 3 次鎖定
+        if current_attempts >= 3:
+            user.is_active = False
+            db.commit() # 嘗試同步資料庫（就算失敗也沒關係，因為記憶體已經鎖死了）
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="ACCOUNT_LOCKED_MAX_ATTEMPTS"
+            )
+        
+        # 未滿 3 次，計算剩餘次數並拋出錯誤
+        remaining_attempts = 3 - current_attempts
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"INVALID_PASSWORD_REMAINING_{remaining_attempts}"
+        )
+            
+    if current_username in FAILED_LOGIN_CACHE:
+        del FAILED_LOGIN_CACHE[current_username]
+        
     user.last_login = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
@@ -70,7 +100,9 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
         "token_type": "bearer", 
         "api_version": "v2",
         "user": {
-            "username": str(user.username),
+            "user_id": user.id,
+            "user_name": str(user.username),
+            "is_active": user.is_active,
             "is_superuser": is_super,
         }
     }
@@ -91,7 +123,6 @@ async def forgot_password(
         user = db.query(AdminUser).filter(AdminUser.email == payload.email).first()
         
         if not user:
-            print(f"⚠️ [安全警示] 有人嘗試請求未註冊的 Email: {payload.email}，系統已靜默忽略。")
             return success_response 
 
         token_expires = timedelta(minutes=15)
@@ -153,8 +184,16 @@ async def reset_password(
     payload: ResetPasswordRequest,
     db: Session = Depends(get_db)
 ):
-    """[V2] 執行重設密碼 - 驗證 Token 並寫入新密碼"""
+    """[V2] 執行重設密碼 - 驗證 Token 且限制只能單次使用，用過即作廢"""
     try:
+        # 檢查此 Token 是否已經被使用過
+        if payload.token in USED_RESET_TOKENS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="該重設連結已被使用過，請重新申請。"
+            )
+
+        # 驗證 Token 有效性與過期時間
         try:
             payload_data = jwt.decode(payload.token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             username: str = payload_data.get("sub")
@@ -166,24 +205,33 @@ async def reset_password(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="重設憑證已過期或無效")
 
         user = db.query(AdminUser).filter(AdminUser.username == username).first()
-        if not user or not user.is_active:
+        if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到該使用者帳號")
 
         new_password_bytes = payload.new_password.encode("utf-8")
         salt = bcrypt.gensalt()
         new_hashed_password = bcrypt.hashpw(new_password_bytes, salt).decode("utf-8")
-
         user.hashed_password = new_hashed_password
+
+        user.is_active = True
         db.commit()
         db.refresh(user)
 
+        USED_RESET_TOKENS.add(payload.token)
+
+        current_username = str(user.username)
+        if current_username in FAILED_LOGIN_CACHE:
+            del FAILED_LOGIN_CACHE[current_username]
+            print(f"🔓 [記憶體解鎖] 使用者 {current_username} 全域錯誤計數器已清空。")
+
+        print(f"🔒 [安全性防禦] Token 已成功作廢，剩餘有效時間內將無法再次使用。")
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"detail": "密碼已成功重設，請使用新密碼重新登入"}
+            content={"detail": "密碼已成功重設，帳號已自動解鎖，請使用新密碼重新登入"}
         )
 
     except HTTPException as http_err:
-        # HTTPException 直接向上拋出，不做 rollback（因為還沒動到 DB 或是已由個別邏輯處理）
         raise http_err
     except Exception as e:
         db.rollback()

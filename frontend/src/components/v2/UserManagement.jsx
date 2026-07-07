@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, Mail, Clock } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock, Unlock } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
+  const currentUserName = localStorage.getItem('userName');
+  const currentUserId = localStorage.getItem('userId');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
-    email: ''
+    email: '',
+    is_superuser: false
   });
 
   useEffect(() => {
@@ -27,60 +30,94 @@ const UserManagement = () => {
     }
   };
 
-const handleCreateUser = async (e) => {
+  const handleCreateUser = async (e) => {
     e.preventDefault();
 
     if (!newUser.username || !newUser.password || !newUser.email) {
-        alert('請填寫完整的帳號、密碼與電子郵件！');
-        return;
+      alert('請填寫完整的帳號、密碼與電子郵件！');
+      return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(newUser.email)) {
-        alert('請輸入有效的電子郵件格式！ (例如: example@domain.com)');
-        return;
-    }
-
-    try {
-        await api.createUser(newUser);
-        setShowCreateModal(false);
-        setNewUser({ username: '', password: '', email: '' });
-        fetchUsers();
-        alert('使用者建立成功');
-    } catch (err) {
-        console.error('Failed to create user:', err);
-        
-        let errorMsg = '建立失敗，請稍後再試';
-        if (err.response && err.response.data && err.response.data.detail) {
-            const detail = err.response.data.detail;
-            
-            if (detail === "帳號已被註冊") {
-                errorMsg = '建立失敗：此帳號已被註冊！';
-            } else if (detail === "電子郵件已被註冊") {
-                errorMsg = '建立失敗：此電子郵件已被註冊！';
-            } else {
-                errorMsg = `建立失敗：${detail}`;
-            }
-        }
-        
-        alert(errorMsg);
-    }
-};
-
-  const handleDeleteUser = async (user) => {
-    if (user.username === 'admin') {
-      alert('無法刪除預設的 admin 超級管理員帳號！');
+      alert('請輸入有效的電子郵件格式！ (例如: example@domain.com)');
       return;
     }
 
-    if (window.confirm(`確定要刪除使用者 ${user.username} 嗎？`)) {
-      try {
-        await api.deleteUser(user.id);
-        fetchUsers();
-      } catch (err) {
-        console.error('Failed to delete user:', err);
-        alert('刪除失敗');
+    try {
+      await api.createUser(newUser);
+      setShowCreateModal(false);
+      setNewUser({ username: '', password: '', email: '', is_superuser: false });
+      fetchUsers();
+      alert('使用者建立成功');
+    } catch (err) {
+      console.error('Failed to create user:', err);
+
+      let errorMsg = '建立失敗，請稍後再試';
+      if (err.response && err.response.data && err.response.data.detail) {
+        const detail = err.response.data.detail;
+
+        if (detail === "accountExists") {
+          errorMsg = '建立失敗：此帳號已被註冊！';
+        } else if (detail === "emailExists") {
+          errorMsg = '建立失敗：此電子郵件已被註冊！';
+        } else {
+          errorMsg = `建立失敗：${detail}`;
+        }
       }
+
+      alert(errorMsg);
+    }
+  };
+
+const handleDeleteUser = async (user) => {
+
+  if (String(user.id) === String(currentUserId)) {
+    alert('無法刪除當前登入的帳號！');
+    return;
+  }
+
+  if (!window.confirm(`確定要刪除使用者「${user.username}」嗎？`)) {
+    return;
+  }
+
+  if (user.is_superuser) {
+    const doubleCheck = window.confirm(
+      `警告：使用者「${user.username}」擁有超級管理員 (Superuser) 權限！\n刪除此帳號可能會影響系統管理。您真的確定要將其徹底刪除嗎？`
+    );
+    if (!doubleCheck) {
+      return;
+    }
+  }
+
+  try {
+    await api.deleteUser(user.id);
+    alert(`使用者「${user.username}」已成功刪除！`);
+    
+    if (typeof fetchUsers === 'function') {
+      fetchUsers();
+    }
+  } catch (err) {
+    console.error('Failed to delete user:', err);
+    const errorMsg = err.response?.data?.detail || '刪除失敗，請確認您的權限或稍後再試。';
+    alert(errorMsg);
+  }
+};
+
+  const handleUnlockUser = async (user) => {
+    const confirmUnlock = window.confirm(`確定要解鎖使用者「${user.username}」嗎？`);
+    if (!confirmUnlock) return;
+
+    try {
+      await api.toggleUserActiveStatus(user.id);
+      alert('帳號解鎖成功！');
+
+      if (typeof fetchUsers === 'function') {
+        fetchUsers();
+      }
+    } catch (err) {
+      console.error('解鎖失敗:', err);
+      alert('解鎖失敗，請稍後再試。');
     }
   };
 
@@ -166,8 +203,18 @@ const handleCreateUser = async (e) => {
                     {formatDateTime(user.last_login)}
                   </div>
                 </td>
+                {/* 操作欄位 */}
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {user.username !== 'admin' && (
+                  {!user.is_active && (
+                    <button
+                      onClick={() => handleUnlockUser(user)}
+                      className="text-indigo-600 hover:text-indigo-900 mr-2"
+                      title="解鎖帳號"
+                    >
+                      <Unlock className="h-5 w-5 " />
+                    </button>
+                  )}
+                  {String(currentUserId) !== String(user.id) && (
                     <button
                       onClick={() => handleDeleteUser(user)}
                       className="text-red-600 hover:text-red-900"
@@ -190,14 +237,14 @@ const handleCreateUser = async (e) => {
             <div className="fixed inset-0 transition-opacity" aria-hidden="true">
               <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
             </div>
-            
+
             <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
               <form onSubmit={handleCreateUser}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                   <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
                     新增管理員帳號
                   </h3>
-                  
+
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700">
@@ -209,10 +256,10 @@ const handleCreateUser = async (e) => {
                         className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm px-3 py-2 border"
                         value={newUser.username}
                         onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                        placeholder="admin2"
+                        placeholder="帳號名稱"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700">
                         密碼 (Password) <span className="text-red-500">*</span>
@@ -226,7 +273,7 @@ const handleCreateUser = async (e) => {
                         placeholder="設定一組安全的密碼"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700">
                         Email <span className="text-red-500">*</span>
@@ -239,9 +286,22 @@ const handleCreateUser = async (e) => {
                         placeholder="manager@example.com"
                       />
                     </div>
+
+                    <div className="mt-4 flex items-center">
+                      <input
+                        id="is_superuser"
+                        type="checkbox"
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                        checked={newUser.is_superuser || false}
+                        onChange={(e) => setNewUser({ ...newUser, is_superuser: e.target.checked })}
+                      />
+                      <label htmlFor="is_superuser" className="ml-2 block text-sm text-gray-900 font-medium">
+                        設定為超級管理員 (Superuser)
+                      </label>
+                    </div>
                   </div>
                 </div>
-                
+
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                   <button
                     type="submit"
