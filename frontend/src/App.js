@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import {
   Home, Package, GitBranch, Smartphone, Users,
   Settings, LogOut, Menu, Bell
@@ -71,7 +71,7 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
         return <DeviceMonitoringV2 />;
       case 'users_v2':
         if (!isSuperuser) {
-          return <Navigate to="/" replace />; // 或者是顯示無權限組件 <div>無權限訪問</div>
+          return <Navigate to="/" replace />;
         }
         return <UserManagement />;
       default:
@@ -123,7 +123,6 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
 
       {/* Main content */}
       <div className="flex-1 overflow-y-auto">
-
         <div className="bg-white shadow-sm px-8 py-4 flex justify-end">
           <button
             onClick={() => setShowNotifications(!showNotifications)} className="text-gray-500 hover:text-gray-700"
@@ -155,6 +154,20 @@ function App() {
       setIsAuthenticated(true);
     }
     setLoading(false);
+
+    // 多重分頁面登出同步處理
+    const handleStorageChange = (e) => {
+      if ((e.key === 'token' || e.key === 'apiMode' || e.key === null) && !e.newValue) {
+        setIsAuthenticated(false);
+        setIsSuperuser(false);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   const handleLogin = (token, mode, superuserFlag = false) => {
