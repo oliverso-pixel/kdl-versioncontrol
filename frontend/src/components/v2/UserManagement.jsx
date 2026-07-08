@@ -109,7 +109,7 @@ const UserManagement = () => {
     const actionText = user.is_active ? '停用' : '啟用';
 
     const confirmToggle = window.confirm(`確定要將使用者「${user.username}」${actionText} 嗎？`);
-    if (!confirmToggle || currentUserId === user.id) return;
+    if (!confirmToggle || currentUserId === user.id || (user.is_superuser && user.is_active)) return;
 
     try {
       await api.toggleUserActiveStatus(user.id);
@@ -234,36 +234,43 @@ const UserManagement = () => {
                 </td>
                 {/* 操作欄位 */}
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {String(currentUserId) !== String(user.id) && !user.is_superuser && (
-                    <button
-                      onClick={() => handleToggleUserActive(user)}
-                      className={`transition-colors p-1 rounded bg-gray-50 border border-gray-100${user.is_active
-                        ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-gray-100'
-                        : 'text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 border-gray-100'
-                        }`}
-                      title={user.is_active ? "停用/鎖定帳號" : "啟用/解鎖帳號"}
-                    >
-                      {user.is_active ? <Unlock className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
-                    </button>
-                  )}
-                  {!user.is_superuser && (
-                    <button
-                      onClick={() => handlePromoteToSuperuser(user)}
-                      className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
-                      title="提升為超級管理員"
-                    >
-                      <ShieldAlert className="h-5 w-5" />
-                    </button>
-                  )}
-                  {String(currentUserId) !== String(user.id) && !user.is_superuser && (
-                    <button
-                      onClick={() => handleDeleteUser(user)}
-                      className="text-red-500 hover:text-red-900 hover:bg-red-50 bg-gray-50 border border-gray-100 p-1 rounded transition-colors"
-                      title="刪除使用者"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  )}
+                  <div className="flex items-center justify-end gap-1.5">
+                    {/* 1. 啟用/停用按鈕 */}
+                    {String(currentUserId) !== String(user.id) && (
+                      !(user.is_superuser && user.is_active) ? (
+                        <button
+                          onClick={() => handleToggleUserActive(user)}
+                          className={`transition-colors p-1 rounded bg-gray-50 border border-gray-100 ${user.is_active
+                              ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                              : 'text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50'
+                            }`}
+                          title={user.is_superuser ? "啟用超級管理員" : (user.is_active ? "停用帳號" : "啟用帳號")}
+                        >
+                          {user.is_active ? <Unlock className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
+                        </button>
+                      ) : null
+                    )}
+                    {/* 2. 提升為超級管理員按鈕 */}
+                    {!user.is_superuser && (
+                      <button
+                        onClick={() => handlePromoteToSuperuser(user)}
+                        className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
+                        title="提升為超級管理員"
+                      >
+                        <ShieldAlert className="h-5 w-5" />
+                      </button>
+                    )}
+                    {/* 3. 刪除使用者按鈕 */}
+                    {String(currentUserId) !== String(user.id) && !user.is_superuser && (
+                      <button
+                        onClick={() => handleDeleteUser(user)}
+                        className="text-red-500 hover:text-red-900 hover:bg-red-50 bg-gray-50 border border-gray-100 p-1 rounded transition-colors"
+                        title="刪除使用者"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
