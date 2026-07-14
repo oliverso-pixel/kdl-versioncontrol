@@ -20,6 +20,10 @@ const DeviceMonitoringV2 = () => {
   const [availableBranches, setAvailableBranches] = useState([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
 
+  const [selectedBranchName, setSelectedBranchName] = useState('');
+  const [editingConfigAppId, setEditingConfigAppId] = useState(null);
+  const [currentConfigText, setCurrentConfigText] = useState('{}');
+
   // Modal 狀態
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [installedApps, setInstalledApps] = useState([]);
@@ -40,6 +44,63 @@ const DeviceMonitoringV2 = () => {
     const interval = setInterval(fetchDevices, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (selectedInstallApp) {
+      const fetchInstallAppBranches = async () => {
+        try {
+          const res = await api.getStoreAppDetails(selectedInstallApp);
+          setAvailableBranches(res.data.branches || []);
+          if (res.data.branches && res.data.branches.length > 0) {
+             setSelectedBranchName(res.data.branches[0].branch_name);
+          } else {
+             setSelectedBranchName('');
+          }
+        } catch (err) {
+          console.error(err);
+          setAvailableBranches([]);
+        }
+      };
+      fetchInstallAppBranches();
+    } else {
+      setAvailableBranches([]);
+      setSelectedBranchName('');
+    }
+  }, [selectedInstallApp]);
+
+  const handleManageConfig = async (appId) => {
+    if (editingConfigAppId === appId) {
+      setEditingConfigAppId(null);
+      return;
+    }
+    setEditingConfigAppId(appId);
+    setCurrentConfigText('載入中...');
+    try {
+      const res = await api.getDeviceAppConfig(selectedDevice.android_id, appId);
+      setCurrentConfigText(JSON.stringify(res.config || {}, null, 2));
+    } catch (err) {
+      setCurrentConfigText('{}');
+    }
+  };
+
+  const handleSaveAndPushConfig = async () => {
+    let jsonObject;
+    try {
+      jsonObject = JSON.parse(currentConfigText);
+    } catch (e) {
+      alert('❌ 輸入格式非正確 JSON 物件，請檢查括號與逗號。');
+      return;
+    }
+    
+    try {
+      await api.updateDeviceAppConfig(selectedDevice.android_id, editingConfigAppId, jsonObject);
+      alert('✅ 設定已成功儲存！若設備在線上，已同步發送即時更新指令。');
+      setEditingConfigAppId(null);
+    } catch (e) {
+      alert('❌ API 儲存失敗：' + (e.message || '伺服器錯誤'));
+      console.error('Update config error:', e);
+    }
+  };
 
   const fetchDevices = async () => {
     try {
@@ -294,15 +355,23 @@ const DeviceMonitoringV2 = () => {
 
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <h5 className="text-sm font-bold text-gray-700 mb-2">推送並安裝應用程式</h5>
-                    <div className="flex gap-2">
-                      <select disabled={!isOnline} value={selectedInstallApp} onChange={(e) => setSelectedInstallApp(e.target.value)} className={`flex-1 border border-gray-300 rounded p-2 text-sm focus:ring-indigo-500 ${!isOnline && 'bg-gray-100 opacity-50 cursor-not-allowed'}`}>
+                    <div className="flex flex-col gap-2">
+                      <select disabled={!isOnline} value={selectedInstallApp} onChange={(e) => setSelectedInstallApp(e.target.value)} className={`border border-gray-300 rounded p-2 text-sm focus:ring-indigo-500 ${!isOnline && 'bg-gray-100 opacity-50 cursor-not-allowed'}`}>
                         {storeApps.map(app => (
                           <option key={app.app_id} value={app.app_id}>{app.name} ({app.app_id})</option>
                         ))}
                       </select>
-                      <button disabled={!isOnline} onClick={() => handleRemoteCommand('AC_app_install', { target_app: selectedInstallApp, branch_name: "stable" })} className={`bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 transition ${btnDisabledClass}`}>
-                        派發安裝
-                      </button>
+                      <div className="flex gap-2">
+                        <select disabled={!isOnline || availableBranches.length === 0} value={selectedBranchName} onChange={(e) => setSelectedBranchName(e.target.value)} className={`flex-1 border border-gray-300 rounded p-2 text-sm focus:ring-indigo-500 ${(!isOnline || availableBranches.length === 0) && 'bg-gray-100 opacity-50 cursor-not-allowed'}`}>
+                          <option value="">請選擇分支...</option>
+                          {availableBranches.map(b => (
+                            <option key={b.branch_name} value={b.branch_name}>{b.branch_name}</option>
+                          ))}
+                        </select>
+                        <button disabled={!isOnline || !selectedBranchName} onClick={() => handleRemoteCommand('AC_app_install', { target_app: selectedInstallApp, branch_name: selectedBranchName })} className={`bg-indigo-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-indigo-700 transition ${btnDisabledClass} disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap`}>
+                          派發安裝
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -413,14 +482,38 @@ const DeviceMonitoringV2 = () => {
                 {loadingDetails ? <p className="text-gray-500 text-sm">同步中...</p> : (
                   <div className="space-y-3">
                     {installedApps.length > 0 ? installedApps.map(app => (
-                      <div key={app.app_id} className="flex justify-between items-center p-3 bg-gray-50 rounded border">
-                        <div>
-                          <div className="font-bold text-gray-800">{app.name}</div>
-                          <div className="text-xs text-gray-500">{app.app_id}</div>
+                      <div key={app.app_id} className="flex flex-col p-3 bg-gray-50 rounded border">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-gray-800">{app.name}</div>
+                            <div className="text-xs text-gray-500">{app.app_id}</div>
+                          </div>
+                          <div className="text-right flex items-center gap-2">
+                            <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-mono border border-green-200">v{app.version_code}</span>
+                            <button
+                              onClick={() => handleManageConfig(app.app_id)}
+                              className="text-xs bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-2 py-1 rounded font-medium transition"
+                            >
+                              ⚙️ Config
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-mono border border-green-200">v{app.version_code}</span>
-                        </div>
+                        {editingConfigAppId === app.app_id && (
+                          <div className="mt-3 border-t pt-3 border-gray-200">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs font-semibold text-gray-600">編輯 Config (JSON格式):</span>
+                              <div className="space-x-2">
+                                <button onClick={() => setEditingConfigAppId(null)} className="text-xs text-gray-500 hover:text-gray-700">取消</button>
+                                <button onClick={handleSaveAndPushConfig} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700">儲存並推播</button>
+                              </div>
+                            </div>
+                            <textarea
+                              className="w-full h-32 bg-gray-800 text-green-400 font-mono text-xs p-2 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              value={currentConfigText}
+                              onChange={(e) => setCurrentConfigText(e.target.value)}
+                            />
+                          </div>
+                        )}
                       </div>
                     )) : <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">此設備尚未安裝任何被控端 App</div>}
                   </div>

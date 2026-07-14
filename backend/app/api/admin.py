@@ -390,30 +390,6 @@ async def list_versions(
     versions = query.order_by(Version.created_at.desc()).offset(skip).limit(limit).all()
     return versions
 
-# @router.delete("/versions/{version_id}")
-# async def delete_version(
-#     version_id: int,
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Delete version (soft delete)"""
-#     version = db.query(Version).filter(Version.id == version_id).first()
-    
-#     if not version:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Version not found"
-#         )
-    
-#     version.is_active = False
-#     db.commit()
-    
-#     # Optionally delete the physical file
-#     # if os.path.exists(version.apk_file_path):
-#     #     os.remove(version.apk_file_path)
-    
-#     return {"message": "Version deleted successfully"}
-
 @router.delete("/versions/{version_id}")
 async def delete_version(
     version_id: int,

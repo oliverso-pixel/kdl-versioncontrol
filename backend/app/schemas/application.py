@@ -1,11 +1,12 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class ApplicationBase(BaseModel):
     app_id: str
     name: str
     description: Optional[str] = None
+    default_config: Optional[Dict[str, Any]] = None
 
 class ApplicationCreate(ApplicationBase):
     pass

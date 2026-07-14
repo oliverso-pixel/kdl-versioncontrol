@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
-from ...models import Device, Application, Branch, Version, SystemSetting
+from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
 import string
@@ -184,6 +184,7 @@ async def device_websocket(
     db: Session = Depends(get_db)
 ):
     """監聽連線、維持心跳、即時狀態回報"""
+
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         await websocket.close(code=1008)
@@ -200,7 +201,6 @@ async def device_websocket(
             "timestamp": datetime.utcnow().isoformat()
         })
     except Exception as e:
-        # 防呆機制：如果剛連上就立刻斷線，安全退出
         ws_manager.disconnect(android_id, db)
         return
     
@@ -213,13 +213,17 @@ async def device_websocket(
 
             logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
             connected_list = list(ws_manager.active_devices.keys())
-            logger.info(f"📋 [MDM WS 當前連線清單] 列表: {connected_list}")
+            # logger.info(f"📋 [MDM WS 當前連線清單] 列表: {connected_list}")
 
             try:
                 message = json.loads(data)
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
                 continue
+
+            if message.get("type") == "ping":
+
+                await websocket.send_json({"type": "pong", "status": "success"})
             
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
@@ -326,6 +330,191 @@ async def device_websocket(
                     "updated_at": datetime.utcnow().isoformat()
                 })
 
+            elif message.get("type") == "sync_apps":
+                apps_list = message.get("apps", [])
+                logger.info(f"📥 [MDM WS App 同步] 設備: {android_id} | 清單: {apps_list}")
+                
+                reported_app_ids = {app['app_id'] for app in apps_list}
+                
+                for app_data in apps_list:
+                    app_model = db.query(Application).filter(Application.app_id == app_data['app_id']).first()
+                    if app_model:
+                        db.execute(
+                            text("""INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
+                               VALUES (:d_id, :a_id, :v_code)
+                               ON DUPLICATE KEY UPDATE current_version_code = :v_code"""),
+                            {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
+                        )
+                        
+                        existing_config = db.execute(
+                            text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+                            {"d_id": device.id, "a_id": app_model.app_id}
+                        ).first()
+                        if not existing_config and app_model.default_config:
+                            db.execute(
+                                text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+                                   VALUES (:d_id, :a_id, :conf, NOW())"""),
+                                {"d_id": device.id, "a_id": app_model.app_id, "conf": json.dumps(app_model.default_config)}
+                            )
+                
+                existing_installed = db.execute(
+                    text("""
+                        SELECT a.app_id, dia.application_id 
+                        FROM device_installed_apps dia
+                        JOIN applications a ON dia.application_id = a.id
+                        WHERE dia.device_id = :d_id
+                    """), {"d_id": device.id}
+                ).fetchall()
+                
+                for row in existing_installed:
+                    if row.app_id not in reported_app_ids:
+                        db.execute(
+                            text("DELETE FROM device_installed_apps WHERE device_id = :d_id AND application_id = :a_id"),
+                            {"d_id": device.id, "a_id": row.application_id}
+                        )
+                        db.execute(
+                            text("DELETE FROM device_app_configs WHERE device_id = :d_id AND app_id = :app_id"),
+                            {"d_id": device.id, "app_id": row.app_id}
+                        )
+                        logger.info(f"🗑️ [MDM WS App 卸載] 設備 {android_id} 已移除 App: {row.app_id}，相關設定已清除")
+
+                db.commit()
+                await websocket.send_json({"type": "sync_apps_ack", "status": "success"})
+
+            elif message.get("type") == "sync_configs":
+                logger.info(f"📥 [MDM WS 取得所有 Config] 設備: {android_id}")
+                configs = db.execute(text("SELECT app_id, config_data FROM device_app_configs WHERE device_id = :d_id"), {"d_id": device.id}).fetchall()
+                result = {row.app_id: json.loads(row.config_data) for row in configs}
+                await websocket.send_json({
+                    "type": "sync_configs_result",
+                    "status": "success",
+                    "configs": result
+                })
+
+            elif message.get("type") == "get_config":
+                target_app = message.get("app_id")
+                logger.info(f"📥 [MDM WS 取得單一 Config] 設備: {android_id} | App: {target_app}")
+                query = text("SELECT config_data FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id")
+                result = db.execute(query, {"d_id": device.id, "a_id": target_app}).first()
+                await websocket.send_json({
+                    "type": "get_config_result",
+                    "app_id": target_app,
+                    "status": "success",
+                    "config": json.loads(result[0]) if result else {}
+                })
+
+            elif message.get("type") in ["report_download", "report_install", "report_updated"]:
+                app_id = message.get("app_id")
+                version_code = message.get("version_code")
+                status = message.get("status", "success") # e.g., "started", "success", "failed"
+                error_msg = message.get("error_message")
+                task_id = message.get("task_id") # 必須從 JSON 中取得 task_id
+                
+                update_type = message.get("type").replace("report_", "") 
+
+                logger.info(f"📥 [MDM WS 回報狀態] 設備: {android_id} | App: {app_id} | 類型: {update_type} | 狀態: {status}")
+
+                if task_id:
+                    try:
+                        result_data = {
+                            "app_id": app_id,
+                            "version_code": version_code,
+                            "status": f"{update_type}_{status}", # 例如: download_success, install_started
+                            "message": error_msg or f"已執行: {update_type} ({status})"
+                        }
+                        db.execute(text("""
+                            INSERT INTO device_command_results (device_id, task_id, action, result_data, created_at)
+                            VALUES (:d_id, :t_id, :act, :res, NOW())
+                        """), {
+                            "d_id": device.id,
+                            "t_id": task_id,
+                            "act": "AC_app_install", # 統一名稱以便關聯同一個指令
+                            "res": json.dumps(result_data, ensure_ascii=False)
+                        })
+                    except Exception as e:
+                        logger.error(f"寫入 Command History 失敗: {e}")
+
+                # 處理原本的安裝紀錄與配發 Config 邏輯
+                app_model = db.query(Application).filter(Application.app_id == app_id).first()
+                if app_model:
+                    # 寫入 UpdateLog 歷史 (供統計面板使用)
+                    version = db.query(Version).filter(and_(Version.application_id == app_model.id, Version.version_code == version_code)).first()
+                    update_log = UpdateLog(
+                        device_id=device.id,
+                        application_id=app_model.id,
+                        branch_id=version.branch_id if version else None,
+                        from_version="unknown", 
+                        to_version=str(version_code),
+                        update_type=update_type,
+                        status=status
+                    )
+                    if error_msg and hasattr(update_log, 'additional_info'):
+                        update_log.additional_info = json.dumps({"error": error_msg})
+                    db.add(update_log)
+                    
+                    # 【關鍵修改】只有當 report_install 且 status 為 success 時，才給予 Default Config
+                    if update_type == "install" and status == "success":
+                        db.execute(text("""
+                            INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
+                            VALUES (:d_id, :a_id, :v_code)
+                            ON DUPLICATE KEY UPDATE current_version_code = :v_code
+                        """), {"d_id": device.id, "a_id": app_model.id, "v_code": version_code})
+                        
+                        existing_config = db.execute(
+                            text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+                            {"d_id": device.id, "a_id": app_model.app_id}
+                        ).first()
+                        
+                        if not existing_config and app_model.default_config:
+                            db.execute(
+                                text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+                                   VALUES (:d_id, :a_id, :conf, NOW())"""),
+                                {
+                                    "d_id": device.id, 
+                                    "a_id": app_model.app_id, 
+                                    "conf": json.dumps(app_model.default_config)
+                                }
+                            )
+
+                db.commit()
+                
+                await websocket.send_json({
+                    "type": f"report_{update_type}_ack", 
+                    "status": "success", 
+                    "app_id": app_id
+                })
+
+            elif message.get("type") == "command_result":
+                task_id = message.get("task_id")
+                action = message.get("action")
+                status = message.get("status")  # 例如: "received", "completed", "failed"
+                result_data = message.get("result_data", {})
+                
+                result_data["status"] = status
+                
+                if task_id and action:
+                    try:
+                        db.execute(text("""
+                            INSERT INTO device_command_results (device_id, task_id, action, result_data, created_at)
+                            VALUES (:d_id, :t_id, :act, :res, NOW())
+                        """), {
+                            "d_id": device.id,
+                            "t_id": task_id,
+                            "act": action,
+                            "res": json.dumps(result_data, ensure_ascii=False)
+                        })
+                        db.commit()
+                        logger.info(f"📝 [MDM WS 指令回報] 設備 {android_id} | 任務 {task_id} ({action}) | 狀態: {status}")
+                        
+                        await websocket.send_json({
+                            "type": "command_result_ack",
+                            "task_id": task_id,
+                            "status": "success"
+                        })
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"❌ [MDM WS 指令回報錯誤] 設備 {android_id} : {e}")
+
             elif message.get("type") == "report_config":
                 target_app_id = message.get("app_id")
                 new_config = message.get("config_data")
@@ -333,7 +522,6 @@ async def device_websocket(
                 if target_app_id and new_config:
                     try:
                         config_json = json.dumps(new_config)
-                        # 更新資料庫中的 Config
                         db.execute(text("""
                             INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
                             VALUES (:d_id, :a_id, :conf, NOW())
@@ -345,7 +533,6 @@ async def device_websocket(
                         })
                         db.commit()
                         
-                        # 回傳 Ack 給設備，讓設備把本地佇列 (Local Queue) 的 is_synced 標記為 true
                         await websocket.send_json({
                             "type": "report_config_ack",
                             "app_id": target_app_id,
@@ -368,13 +555,47 @@ async def device_websocket(
 async def send_admin_command(
     android_id: str,
     command: dict,
+    db: Session = Depends(get_db),
     token_payload: dict = Depends(verify_token)
 ):
-    """管理員後台發送指令給 MDM"""
+    """管理員後台發送指令給 MDM，並寫入 Command History"""
+    
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
     success = await ws_manager.send_command(android_id, command)
+    
+    # 如果前端沒有傳 task_id，我們自動產生一個確保後續追蹤
+    task_id = command.get("task_id", f"task_{int(datetime.utcnow().timestamp()*1000)}")
+    action = command.get("action", "unknown_action")
+    
+    status = "sent" if success else "offline_failed"
+    result_data = {
+        "status": status, 
+        "command_payload": command,
+        "message": "指令已發送至設備" if success else "設備離線，指令發送失敗"
+    }
+    
+    try:
+        db.execute(text("""
+            INSERT INTO device_command_results (device_id, task_id, action, result_data, created_at)
+            VALUES (:d_id, :t_id, :act, :res, NOW())
+        """), {
+            "d_id": device.id,
+            "t_id": task_id,
+            "act": action,
+            "res": json.dumps(result_data, ensure_ascii=False)
+        })
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"寫入 Command History 失敗: {e}")
+
     if not success:
         raise HTTPException(status_code=400, detail="Device is offline")
-    return {"status": "command_sent"}
+        
+    return {"status": "command_sent", "task_id": task_id}
 
 # ----------------- Enterprise App Store Endpoints ----------------- #
 
@@ -717,6 +938,7 @@ async def update_device_app_config(
     db: Session = Depends(get_db)
 ):
     """[Web Panel] 修改設定並推播給線上設備"""
+    
     device = db.query(Device).filter(Device.android_id == android_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -740,16 +962,33 @@ async def update_device_app_config(
     
     return {"status": "success", "message": "Config saved and push attempted"}
 
-@router.get("/devices/{android_id}/sync-configs")
-async def device_pull_configs(android_id: str, api_key: str, db: Session = Depends(get_db)):
+# @router.get("/devices/{android_id}/sync-configs")
+# async def device_pull_configs(android_id: str, api_key: str, db: Session = Depends(get_db)):
 
-    """[App 端] MDM App 開機或重連時，主動拉取所有屬於此設備的 Config"""
+#     """[App 端] MDM App 開機或重連時，主動拉取所有屬於此設備的 Config"""
 
+#     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+#     if not device:
+#         raise HTTPException(status_code=401, detail="Unauthorized")
+        
+#     configs = db.execute(text("SELECT app_id, config_data FROM device_app_configs WHERE device_id = :d_id"), {"d_id": device.id}).fetchall()
+    
+#     result = {row.app_id: json.loads(row.config_data) for row in configs}
+#     return {"status": "success", "configs": result}
+
+@router.get("/devices/{android_id}/configs/{app_id}")
+async def device_get_specific_app_config(
+    android_id: str, 
+    app_id: str, 
+    api_key: str = Query(...), 
+    db: Session = Depends(get_db)
+):
+    """[App 端] 取得指定設備的指定單一 App 設定"""
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    configs = db.execute(text("SELECT app_id, config_data FROM device_app_configs WHERE device_id = :d_id"), {"d_id": device.id}).fetchall()
+    query = text("SELECT config_data FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id")
+    result = db.execute(query, {"d_id": device.id, "a_id": app_id}).first()
     
-    result = {row.app_id: json.loads(row.config_data) for row in configs}
-    return {"status": "success", "configs": result}
+    return {"status": "success", "config": json.loads(result[0]) if result else {}}

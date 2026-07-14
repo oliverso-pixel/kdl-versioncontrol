@@ -75,6 +75,7 @@ async def websocket_endpoint(
     branch: str
 ):
     """V2 WebSocket endpoint for real-time update notifications"""
+    
     client_ip = websocket.client.host if websocket.client else "Unknown"
     
     try:
