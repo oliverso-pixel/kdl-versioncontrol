@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Numeric, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.utils import get_hkt_now
 
 class Device(Base):
     __tablename__ = "devices"
@@ -15,8 +16,8 @@ class Device(Base):
 
     device_model = Column(String(200))
     os_version = Column(String(50))
-    app_version = Column(String(50))
-    last_check_time = Column(DateTime, default=datetime.utcnow)
+    app_signature = Column(JSON, nullable=True)
+    last_check_time = Column(DateTime, default=get_hkt_now)
     additional_info = Column(Text)  # JSON field for extra data
     notes = Column(Text)  # Admin notes
     is_active = Column(Boolean, default=True)
@@ -32,7 +33,7 @@ class Device(Base):
     satellites = Column(Integer, nullable=True)
     gps_time = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_hkt_now)
+    updated_at = Column(DateTime, default=get_hkt_now, onupdate=get_hkt_now)
     
     update_logs = relationship("UpdateLog", back_populates="device")

@@ -14,7 +14,7 @@ from .api.v2 import websocket as v2_websocket
 from .api.v2 import version_check as v2_version_check
 from .api.v2 import mdm as v2_mdm
 from .api.v2 import auth as v2_auth, users as v2_users
-from .core.utils import ensure_directory_exists, setup_logging
+from .core.utils import ensure_directory_exists, setup_logging, get_hkt_now
 
 # Setup logging
 setup_logging()
@@ -106,7 +106,7 @@ async def health_check():
     return {
         "status": "healthy",
         "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_hkt_now().isoformat()
     }
 
 @app.get("/")

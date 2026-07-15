@@ -2,9 +2,13 @@ import os
 import json
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+HKT = timezone(timedelta(hours=8))
+
+def get_hkt_now():
+    return datetime.now(HKT)
 
 def ensure_directory_exists(path: str):
     """Ensure directory exists, create if not"""

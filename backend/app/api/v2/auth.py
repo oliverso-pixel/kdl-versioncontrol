@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from ...database import get_db
 from ...core.security import verify_password, create_access_token
+from ...core.utils import get_hkt_now
 from ...config import settings
 from ...models.admin_user import AdminUser # 假設你已建立 AdminUser 模型
 
@@ -22,7 +23,7 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
 
     # 更新最後登入時間
     from datetime import datetime
-    user.last_login = datetime.utcnow()
+    user.last_login = get_hkt_now()
     db.commit()
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

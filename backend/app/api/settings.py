@@ -8,6 +8,7 @@ from ..models import SystemSetting, ApiKey
 from ..schemas.system_setting import SystemSetting as SystemSettingSchema, SystemSettingUpdate
 from ..schemas.api_key import ApiKey as ApiKeySchema, ApiKeyCreate
 from ..core.security import verify_token, generate_api_key
+from ..core.utils import get_hkt_now
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ async def update_system_settings(
             
             if setting:
                 setting.value = str(value)
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = get_hkt_now()
             else:
                 # Create new setting
                 setting = SystemSetting(
@@ -123,7 +124,7 @@ async def revoke_api_key(
         )
     
     api_key.is_active = False
-    api_key.revoked_at = datetime.utcnow()
+    api_key.revoked_at = get_hkt_now()
     db.commit()
     
     logger.info(f"Revoked API key: {api_key.name}")

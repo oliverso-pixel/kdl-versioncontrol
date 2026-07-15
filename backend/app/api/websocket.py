@@ -3,6 +3,7 @@ from typing import Dict, Set
 import json
 import asyncio
 from datetime import datetime
+from ..core.utils import get_hkt_now
 
 router = APIRouter()
 
@@ -23,7 +24,7 @@ class ConnectionManager:
             "app_id": app_id,
             "branch": branch,
             "device_info": device_info,
-            "connected_at": datetime.utcnow()
+            "connected_at": get_hkt_now()
         }
     
     def disconnect(self, websocket: WebSocket):
@@ -78,7 +79,7 @@ async def websocket_endpoint(
             json.dumps({
                 "type": "connected",
                 "message": "Connected to update service",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": get_hkt_now().isoformat()
             }),
             websocket
         )
@@ -92,7 +93,7 @@ async def websocket_endpoint(
                 await manager.send_personal_message(
                     json.dumps({
                         "type": "heartbeat_ack",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": get_hkt_now().isoformat()
                     }),
                     websocket
                 )
@@ -110,7 +111,7 @@ async def notify_update_available(app_id: str, branch: str, version_info: dict):
         "version_code": version_info["version_code"],
         "version_name": version_info["version_name"],
         "force_update": version_info["force_update"],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_hkt_now().isoformat()
     }
     
     await manager.broadcast_to_app_branch(app_id, branch, message)

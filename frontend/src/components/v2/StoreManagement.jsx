@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Plus, ChevronRight, Download, Edit, Trash2, UploadCloud, GitBranch } from 'lucide-react';
 import api from '../../services/api';
+import { API_BASE } from '../../utils/constants';
 
 const StoreManagement = () => {
   const [apps, setApps] = useState([]);
@@ -207,7 +208,12 @@ const StoreManagement = () => {
             <button 
               onClick={() => {
                 setIsEditingApp(true);
-                setAppFormData({ app_id: appDetails.app_id, name: appDetails.name, description: appDetails.description });
+                setAppFormData({ 
+                  app_id: appDetails.app_id, 
+                  name: appDetails.name, 
+                  description: appDetails.description, 
+                  default_config: appDetails.default_config ? JSON.stringify(appDetails.default_config, null, 2) : '{}' 
+                });
                 setShowAppModal(true);
               }}
               className="bg-gray-100 text-gray-700 hover:bg-gray-200 px-4 py-2 rounded flex items-center transition"
@@ -260,10 +266,12 @@ const StoreManagement = () => {
                     {b.latest_version.force_update && <span className="text-xs text-red-600 font-bold mt-1 block">⚠️ 此為強制更新版本</span>}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => window.open(b.latest_version.download_url)} className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-2 rounded flex items-center shadow-sm transition text-sm">
-                      <Download className="w-4 h-4 mr-1"/> 下載 APK說明描述
+                    <button 
+                      onClick={() => window.open(`${API_BASE}${b.latest_version.download_url}`, '_blank')} 
+                      className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-2 rounded flex items-center shadow-sm transition text-sm"
+                    >
+                      <Download className="w-4 h-4 mr-1"/> 下載 APK 檔案
                     </button>
-                    {/* 加入切換歷史紀錄的按鈕 */}
                     <button onClick={() => toggleHistory(b.branch_name)} className="bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-2 rounded transition text-sm">
                       {expandedHistory[b.branch_name] ? '隱藏歷史紀錄' : '歷史版本紀錄'}
                     </button>
@@ -451,7 +459,7 @@ const StoreManagement = () => {
         <button 
           onClick={() => {
             setIsEditingApp(false);
-            setAppFormData({ app_id: '', name: '', description: '' });
+            setAppFormData({ app_id: '', name: '', description: '', default_config: '{}' });
             setShowAppModal(true);
           }} 
           className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg flex items-center shadow-md hover:bg-indigo-700 transition font-medium"

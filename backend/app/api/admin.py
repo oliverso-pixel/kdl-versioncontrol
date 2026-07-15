@@ -13,7 +13,7 @@ from ..schemas.branch import Branch as BranchSchema, BranchCreate, BranchUpdate
 from ..schemas.version import Version as VersionSchema, VersionCreate
 from ..schemas.device import Device as DeviceSchema, DeviceCreate, DeviceUpdate, DeviceWithLogs
 from ..core.security import verify_token, calculate_file_hash
-from ..core.utils import ensure_directory_exists
+from ..core.utils import ensure_directory_exists, get_hkt_now
 from ..core.pagination import paginate, PaginationParams
 from ..config import settings
 import logging
@@ -95,7 +95,7 @@ async def update_application(
     for field, value in update_data.items():
         setattr(app, field, value)
     
-    app.updated_at = datetime.utcnow()
+    app.updated_at = get_hkt_now()
     db.commit()
     db.refresh(app)
     
@@ -133,7 +133,7 @@ async def delete_application(
     else:
         # 軟刪除
         app.is_active = False
-        app.updated_at = datetime.utcnow()
+        app.updated_at = get_hkt_now()
         db.commit()
         logger.info(f"Soft deleted application: {app.app_id}")
         return {"message": "Application deactivated"}
@@ -565,7 +565,7 @@ async def list_devices(
 ):
     """List devices with filters"""
     
-    since_date = datetime.utcnow() - timedelta(days=days)
+    since_date = get_hkt_now() - timedelta(days=days)
     query = db.query(Device)
     
     # Apply filters
@@ -687,7 +687,7 @@ async def update_device(
     for field, value in update_data.items():
         setattr(device, field, value)
     
-    device.updated_at = datetime.utcnow()
+    device.updated_at = get_hkt_now()
     db.commit()
     db.refresh(device)
     
@@ -722,7 +722,7 @@ async def delete_device(
     else:
         # Soft delete
         device.is_active = False
-        device.updated_at = datetime.utcnow()
+        device.updated_at = get_hkt_now()
         db.commit()
         logger.info(f"Soft deleted device: {device.android_id}")
         return {"message": "Device deactivated"}
@@ -744,7 +744,7 @@ async def activate_device(
         )
     
     device.is_active = True
-    device.updated_at = datetime.utcnow()
+    device.updated_at = get_hkt_now()
     db.commit()
     
     logger.info(f"Activated device: {device.android_id}")
@@ -758,7 +758,7 @@ async def get_device_statistics(
 ):
     """Get device statistics summary"""
     
-    since_date = datetime.utcnow() - timedelta(days=days)
+    since_date = get_hkt_now() - timedelta(days=days)
     
     # Total devices
     total_devices = db.query(func.count(Device.id)).filter(
@@ -825,7 +825,7 @@ async def bulk_deactivate_devices(
 ):
     """Bulk deactivate inactive devices"""
     
-    cutoff_date = datetime.utcnow() - timedelta(days=days_inactive)
+    cutoff_date = get_hkt_now() - timedelta(days=days_inactive)
     
     # Update devices
     affected = db.query(Device).filter(
@@ -835,7 +835,7 @@ async def bulk_deactivate_devices(
         )
     ).update({
         "is_active": False,
-        "updated_at": datetime.utcnow()
+        "updated_at": get_hkt_now()
     })
     
     db.commit()

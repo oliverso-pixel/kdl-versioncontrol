@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.utils import get_hkt_now
 
 class UpdateLog(Base):
     __tablename__ = "update_logs"
@@ -14,6 +15,6 @@ class UpdateLog(Base):
     to_version = Column(String(50))
     update_type = Column(String(50))  # 'check', 'download', 'install'
     status = Column(String(50))  # 'success', 'failed', 'pending'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_hkt_now)
     
     device = relationship("Device", back_populates="update_logs")

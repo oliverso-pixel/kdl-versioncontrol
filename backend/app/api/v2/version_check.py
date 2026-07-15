@@ -12,7 +12,7 @@ from ...models import Application, Branch, Version, Device, UpdateLog
 from ...schemas.version import VersionCheckResponse
 from ...schemas.device import DeviceInfo
 from ...core.security import verify_token
-from ...core.utils import save_device_info
+from ...core.utils import save_device_info, get_hkt_now
 
 logger = logging.getLogger("v2.version_check")
 logger.setLevel(logging.INFO)
@@ -58,7 +58,7 @@ async def check_version_v2(
     if not device:
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid Device or API Key")
 
-    device.last_check_time = datetime.utcnow()
+    device.last_check_time = get_hkt_now()
     
     # 尋找目標 App (com.kowloondairy.mdmapp)
     app = db.query(Application).filter(and_(Application.app_id == target_app_id, Application.is_active == True)).first()

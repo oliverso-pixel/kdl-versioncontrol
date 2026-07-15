@@ -8,7 +8,7 @@ import subprocess
 from ..database import get_db, engine
 from ..models import UpdateLog, Device
 from ..core.security import verify_token
-from ..core.utils import ensure_directory_exists
+from ..core.utils import ensure_directory_exists, get_hkt_now
 from ..config import settings
 import logging
 
@@ -121,7 +121,7 @@ async def cleanup_database(
 ):
     """Clean up old data"""
     
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = get_hkt_now() - timedelta(days=days)
     
     # Delete old update logs
     deleted_logs = db.query(UpdateLog).filter(

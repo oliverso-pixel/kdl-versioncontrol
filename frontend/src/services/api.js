@@ -393,6 +393,19 @@ class ApiService {
   async getAllDevicesV2() {
     return this.request('/api/v2/admin/devices');
   }
+
+  // 取得指定裝置的 App Config
+  async getDeviceAppConfig(androidId, appId) {
+    return this.request(`/api/v2/admin/devices/${androidId}/configs/${appId}`);
+  }
+
+  // 更新指定裝置的 App Config
+  async updateDeviceAppConfig(androidId, appId, configData) {
+    return this.request(`/api/v2/admin/devices/${androidId}/configs/${appId}`, {
+      method: 'POST',
+      body: JSON.stringify(configData),
+    });
+  }
 }
 
 export default new ApiService();

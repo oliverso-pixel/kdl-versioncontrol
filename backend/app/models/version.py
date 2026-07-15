@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, T
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.utils import get_hkt_now
 
 class Version(Base):
     __tablename__ = "versions"
@@ -19,7 +20,7 @@ class Version(Base):
     min_supported_version = Column(Integer, default=0)
     release_notes = Column(Text)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_hkt_now)
     
     application = relationship("Application", back_populates="versions")
     branch = relationship("Branch", back_populates="versions")

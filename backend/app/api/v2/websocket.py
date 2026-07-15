@@ -1,7 +1,8 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 from typing import Dict, Set
-import json
 from datetime import datetime
+from ...core.utils import get_hkt_now
+import json
 import logging
 
 logger = logging.getLogger("v2.websocket")
@@ -26,7 +27,7 @@ class ConnectionManager:
             "app_id": app_id,
             "branch": branch,
             "client_ip": client_ip,
-            "connected_at": datetime.utcnow()
+            "connected_at": get_hkt_now()
         }
         logger.info(f"[WS 連線建立] 來源 IP: {client_ip} | App: {app_id} | 分支: {branch} | 目前此分支連線數: {len(self.active_connections[key])}")
     
@@ -85,7 +86,7 @@ async def websocket_endpoint(
             json.dumps({
                 "type": "connected",
                 "message": "Connected to V2 update service",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": get_hkt_now().isoformat()
             }),
             websocket
         )
@@ -101,7 +102,7 @@ async def websocket_endpoint(
                 await manager.send_personal_message(
                     json.dumps({
                         "type": "heartbeat_ack",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": get_hkt_now().isoformat()
                     }),
                     websocket
                 )
@@ -119,7 +120,7 @@ async def notify_update_available_v2(app_id: str, branch: str, version_info: dic
         "version_code": version_info["version_code"],
         "version_name": version_info["version_name"],
         "force_update": version_info["force_update"],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_hkt_now().isoformat(),
         "api_version": "v2"
     }
     await manager.broadcast_to_app_branch(app_id, branch, message)

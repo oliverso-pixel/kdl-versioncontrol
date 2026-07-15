@@ -351,6 +351,14 @@ const DeviceMonitoringV2 = () => {
                     <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_stop_sound')} className={`bg-green-50 text-green-700 hover:bg-green-100 p-3 rounded flex flex-col items-center justify-center border border-green-200 transition col-span-2 lg:col-span-1 ${btnDisabledClass}`}>
                       <VolumeX className="w-6 h-6 mb-1"/> 停止聲音
                     </button>
+                    <button 
+                      disabled={!isOnline} 
+                      onClick={() => handleRemoteCommand('DC_emergency_release', { secret: "5HVQIGH2zJHr6FTFnBoUEzzZi52ZU2dM" })} 
+                      className={`bg-orange-50 text-orange-700 hover:bg-orange-100 p-3 rounded flex flex-col items-center justify-center border border-orange-200 transition ${btnDisabledClass}`}
+                    >
+                      <span className="text-xl mb-1">🚨</span>
+                      <span className="text-xs font-medium">緊急解除鎖定</span>
+                    </button>
                   </div>
 
                   <div className="mt-4 pt-4 border-t border-gray-100">
@@ -483,28 +491,56 @@ const DeviceMonitoringV2 = () => {
                   <div className="space-y-3">
                     {installedApps.length > 0 ? installedApps.map(app => (
                       <div key={app.app_id} className="flex flex-col p-3 bg-gray-50 rounded border">
-                        <div className="flex justify-between items-center">
+                        
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                           <div>
                             <div className="font-bold text-gray-800">{app.name}</div>
                             <div className="text-xs text-gray-500">{app.app_id}</div>
                           </div>
-                          <div className="text-right flex items-center gap-2">
-                            <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-mono border border-green-200">v{app.version_code}</span>
-                            <button
-                              onClick={() => handleManageConfig(app.app_id)}
-                              className="text-xs bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-2 py-1 rounded font-medium transition"
-                            >
-                              ⚙️ Config
-                            </button>
+                          <div className="self-start sm:self-auto">
+                            <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-mono border border-green-200">
+                              v{app.current_version_code || app.version_code}
+                            </span>
                           </div>
                         </div>
+
+                        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                          <button
+                            onClick={() => handleManageConfig(app.app_id)}
+                            className="text-xs bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-3 py-1.5 rounded font-medium transition flex items-center"
+                          >
+                            ⚙️ Config
+                          </button>
+
+                          {app.app_id !== 'com.kowloondairy.mdmapp' && (
+                            <button
+                              onClick={() => handleRemoteCommand('AC_app_uninstall', { target_app: app.app_id })}
+                              className="text-xs bg-red-100 text-red-700 hover:bg-red-200 px-3 py-1.5 rounded font-medium transition flex items-center"
+                              title="遠端卸載此 App"
+                            >
+                              🗑️ 卸載
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Config JSON 編輯區塊 */}
                         {editingConfigAppId === app.app_id && (
                           <div className="mt-3 border-t pt-3 border-gray-200">
-                            <div className="flex justify-between items-center mb-2">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
                               <span className="text-xs font-semibold text-gray-600">編輯 Config (JSON格式):</span>
-                              <div className="space-x-2">
-                                <button onClick={() => setEditingConfigAppId(null)} className="text-xs text-gray-500 hover:text-gray-700">取消</button>
-                                <button onClick={handleSaveAndPushConfig} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700">儲存並推播</button>
+                              <div className="flex gap-2 w-full sm:w-auto">
+                                <button 
+                                  onClick={() => setEditingConfigAppId(null)} 
+                                  className="flex-1 sm:flex-none text-xs px-3 py-1.5 border rounded hover:bg-gray-100"
+                                >
+                                  取消
+                                </button>
+                                <button 
+                                  onClick={handleSaveAndPushConfig} 
+                                  className="flex-1 sm:flex-none text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700"
+                                >
+                                  儲存並推播
+                                </button>
                               </div>
                             </div>
                             <textarea
@@ -515,7 +551,11 @@ const DeviceMonitoringV2 = () => {
                           </div>
                         )}
                       </div>
-                    )) : <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">此設備尚未安裝任何被控端 App</div>}
+                    )) : (
+                      <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">
+                        此設備尚未安裝任何被控端 App
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

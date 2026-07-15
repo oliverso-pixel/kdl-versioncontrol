@@ -7,6 +7,7 @@ from ..database import get_db
 from ..models import Application, Version, Device, UpdateLog
 from ..schemas.statistics import Statistics, VersionStatistics
 from ..core.security import verify_token
+from ..core.utils import get_hkt_now
 
 router = APIRouter(prefix="/api/admin", tags=["Statistics"])
 
@@ -19,7 +20,7 @@ async def get_statistics(
     """Get system statistics"""
     
     # Calculate date range
-    now = datetime.utcnow()
+    now = get_hkt_now()
     if period == "day":
         start_date = now - timedelta(days=1)
     elif period == "week":
@@ -113,7 +114,7 @@ async def get_app_statistics(
         return {"error": "Application not found"}
     
     # Calculate date range
-    now = datetime.utcnow()
+    now = get_hkt_now()
     if period == "day":
         start_date = now - timedelta(days=1)
     elif period == "week":

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
+from ...core.utils import get_hkt_now
 from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
@@ -26,6 +27,7 @@ class DeviceRegisterRequest(BaseModel):
     os_version: str
     hardware_id: Optional[str] = None
     additional_info: Optional[Dict] = None
+    app_signature: Optional[Dict] = None
 
 # ----------------- HTTP Endpoints ----------------- #
 
@@ -35,9 +37,11 @@ async def register_device(
     db: Session = Depends(get_db)
 ):
     """1. 設備首次登記 (防重複機制 + 儲存 additional_info)"""
+
+    logger.info(f"📥 [/devices/register] 收到設備登記請求 Data: {payload.dict()}")
+
     device = None
     
-    # 將 dict 轉為 JSON 字串以便存入 TEXT 欄位
     add_info_str = json.dumps(payload.additional_info) if payload.additional_info else None
     
     if payload.hardware_id:
@@ -55,8 +59,8 @@ async def register_device(
         device.device_api_key = new_key
         device.device_model = payload.device_model
         device.os_version = payload.os_version
+        device.app_signature = payload.app_signature
         
-        # 若有傳送新的 additional_info 則覆蓋更新
         if add_info_str:
             device.additional_info = add_info_str
             
@@ -68,7 +72,7 @@ async def register_device(
             hardware_id=payload.hardware_id,
             device_model=payload.device_model,
             os_version=payload.os_version,
-            app_version="1.0.0",
+            app_signature=payload.app_signature,
             device_api_key=new_key,
             additional_info=add_info_str  # 寫入 additional_info
         )
@@ -77,50 +81,50 @@ async def register_device(
     db.commit()
     return {"status": "success", "android_id": payload.android_id, "api_key": new_key}
 
-@router.post("/devices/{android_id}/sync-apps")
-async def sync_device_apps(
-    android_id: str,
-    api_key: str,
-    apps: List[dict], # [{"app_id": "com.app.a", "version_code": 100}]
-    db: Session = Depends(get_db)
-):
+# @router.post("/devices/{android_id}/sync-apps")
+# async def sync_device_apps(
+#     android_id: str,
+#     api_key: str,
+#     apps: List[dict], # [{"app_id": "com.app.a", "version_code": 100}]
+#     db: Session = Depends(get_db)
+# ):
 
-    """確保裝置已安裝 App 清單為最新狀態"""
+#     """確保裝置已安裝 App 清單為最新狀態"""
 
-    logger.info(f"📥 [MDM API sync-apps] 來自設備: {android_id} | 接收到的 App 清單 JSON: {json.dumps(apps, ensure_ascii=False)}")
+#     logger.info(f"📥 [MDM API sync-apps] 來自設備: {android_id} | 接收到的 App 清單 JSON: {json.dumps(apps, ensure_ascii=False)}")
 
-    device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
-    if not device:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+#     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+#     if not device:
+#         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    db.execute(text("DELETE FROM device_installed_apps WHERE device_id = :id"), {"id": device.id})
+#     db.execute(text("DELETE FROM device_installed_apps WHERE device_id = :id"), {"id": device.id})
     
-    for app_data in apps:
-        app_model = db.query(Application).filter(Application.app_id == app_data['app_id']).first()
-        if app_model:
-            db.execute(
-                text("""INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
-                   VALUES (:d_id, :a_id, :v_code)"""),
-                {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
-            )
+#     for app_data in apps:
+#         app_model = db.query(Application).filter(Application.app_id == app_data['app_id']).first()
+#         if app_model:
+#             db.execute(
+#                 text("""INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
+#                    VALUES (:d_id, :a_id, :v_code)"""),
+#                 {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
+#             )
             
-            existing_config = db.execute(
-                text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
-                {"d_id": device.id, "a_id": app_model.app_id}
-            ).first()
+#             existing_config = db.execute(
+#                 text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+#                 {"d_id": device.id, "a_id": app_model.app_id}
+#             ).first()
             
-            if not existing_config and app_model.default_config:
-                db.execute(
-                    text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
-                       VALUES (:d_id, :a_id, :conf, NOW())"""),
-                    {
-                        "d_id": device.id, 
-                        "a_id": app_model.app_id, 
-                        "conf": json.dumps(app_model.default_config)
-                    }
-                )
-    db.commit()
-    return {"status": "synced"}
+#             if not existing_config and app_model.default_config:
+#                 db.execute(
+#                     text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+#                        VALUES (:d_id, :a_id, :conf, NOW())"""),
+#                     {
+#                         "d_id": device.id, 
+#                         "a_id": app_model.app_id, 
+#                         "conf": json.dumps(app_model.default_config)
+#                     }
+#                 )
+#     db.commit()
+#     return {"status": "synced"}
 
 @router.post("/devices/{android_id}/report-data")
 async def report_app_data(
@@ -198,7 +202,7 @@ async def device_websocket(
             "status": "success",
             "message": "Connected to V2 MDM WebSocket Service",
             "device_model": device.device_model,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_hkt_now().isoformat()
         })
     except Exception as e:
         ws_manager.disconnect(android_id, db)
@@ -222,17 +226,25 @@ async def device_websocket(
                 continue
 
             if message.get("type") == "ping":
-
-                await websocket.send_json({"type": "pong", "status": "success"})
+                await websocket.send_json({"type": "pong", "status": "success", "message": ""})
+                device.last_check_time = get_hkt_now()
+                db.commit()
             
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
 
                 gps_time_str = message.get("GPStime")
                 try:
-                    gps_time = datetime.fromisoformat(gps_time_str) if gps_time_str else datetime.utcnow()
+                    # gps_time = datetime.fromisoformat(gps_time_str) if gps_time_str else get_hkt_now()
+                    if gps_time_str:
+                        gps_time = datetime.fromisoformat(gps_time_str)
+                    else:
+                        gps_time = get_hkt_now()
                 except ValueError:
-                    gps_time = datetime.utcnow()
+                    gps_time = get_hkt_now()
+
+                if gps_time.tzinfo is not None:
+                    gps_time = gps_time.replace(tzinfo=None)
 
                 route = message.get("Route")
                 altitude = message.get("Altitude")
@@ -250,7 +262,7 @@ async def device_websocket(
                     device.satellites = satellites
                     device.gps_time = gps_time
                 
-                device.last_check_time = datetime.utcnow()
+                device.last_check_time = get_hkt_now()
                 
                 if message.get("lat") and message.get("lng"):
                     db.execute(text("""
@@ -279,7 +291,7 @@ async def device_websocket(
                 sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
                 
                 # 判斷當前伺服器時間是否在休眠區間
-                current_time = datetime.utcnow().time()
+                current_time = get_hkt_now().time()
                 try:
                     s_hr, s_min = map(int, sleep_start_str.split(':'))
                     e_hr, e_min = map(int, sleep_end_str.split(':'))
@@ -327,7 +339,7 @@ async def device_websocket(
                 await websocket.send_json({
                     "type": "status_update_ack", 
                     "status": "success",
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_hkt_now().isoformat()
                 })
 
             elif message.get("type") == "sync_apps":
@@ -545,7 +557,7 @@ async def device_websocket(
                 
             elif message.get("type") == "heartbeat":
                 await websocket.send_json({"type": "heartbeat_ack"})
-                device.last_check_time = datetime.utcnow()
+                device.last_check_time = get_hkt_now()
                 db.commit()
 
     except WebSocketDisconnect:
@@ -567,7 +579,7 @@ async def send_admin_command(
     success = await ws_manager.send_command(android_id, command)
     
     # 如果前端沒有傳 task_id，我們自動產生一個確保後續追蹤
-    task_id = command.get("task_id", f"task_{int(datetime.utcnow().timestamp()*1000)}")
+    task_id = command.get("task_id", f"task_{int(get_hkt_now().timestamp()*1000)}")
     action = command.get("action", "unknown_action")
     
     status = "sent" if success else "offline_failed"
@@ -758,6 +770,7 @@ async def get_admin_store_app_details(
     [Web Panel] 取得單一 App 的詳細資訊
     提供給 Web Panel 使用，透過 JWT Token 驗證。
     """
+
     app = db.query(Application).filter(
         Application.app_id == app_id, 
         Application.is_active == True
@@ -775,6 +788,7 @@ async def get_admin_store_app_details(
         "app_id": app.app_id,
         "name": app.name,
         "description": app.description,
+        "default_config": app.default_config,
         "branches": []
     }
     

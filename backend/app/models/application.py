@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.utils import get_hkt_now
 
 class Application(Base):
     __tablename__ = "applications"
@@ -12,8 +13,8 @@ class Application(Base):
     description = Column(String(500))
     default_config = Column(JSON, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_hkt_now)
+    updated_at = Column(DateTime, default=get_hkt_now, onupdate=get_hkt_now)
     
     branches = relationship("Branch", back_populates="application")
     versions = relationship("Version", back_populates="application")

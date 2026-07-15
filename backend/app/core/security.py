@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from ..core.utils import get_hkt_now
 from ..database import get_db
 from ..models import ApiKey
 from ..config import settings
@@ -19,9 +20,9 @@ security = HTTPBearer()
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = get_hkt_now() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = get_hkt_now() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
@@ -69,11 +70,11 @@ def verify_api_key(api_key: str, db: Session = None) -> bool:
         
         if key:
             # Check expiration
-            if key.expires_at and key.expires_at < datetime.utcnow():
+            if key.expires_at and key.expires_at < get_hkt_now():
                 return False
             
             # Update last used
-            key.last_used = datetime.utcnow()
+            key.last_used = get_hkt_now()
             db.commit()
             
             return True
