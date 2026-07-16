@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import api from '../../services/api';
 import { Link } from 'react-router-dom';
+import AuthUser from '../../models/AuthUser'; 
 
 const Login = ({ onLogin }) => {
   const [mode, setMode] = useState('v2');
@@ -16,24 +16,36 @@ const Login = ({ onLogin }) => {
     setError('');
 
     try {
-      let data, isSuper = false;
+      let loggedInUser;
 
       if (mode === 'v1') {
-        data = await api.login(apiKey);
-        localStorage.setItem('apiMode', 'v1');
+        loggedInUser = await AuthUser.loginWithApiKey(apiKey);
       } else {
-        data = await api.loginV2(username, password);
-        isSuper = Boolean(data.user?.is_superuser);
-        localStorage.setItem('apiMode', 'v2');
-        localStorage.setItem('isSuperuser', isSuper ? 'true' : 'false');
+        loggedInUser = await AuthUser.loginWithCredentials(username, password);
       }
 
-      onLogin(data.access_token, mode, isSuper);
+      onLogin(loggedInUser.token, loggedInUser.apiMode, loggedInUser.isSuperuser);
+      
     } catch (err) {
+      console.error("登入失敗:", err);
+
+      const serverMessage = err.response?.data?.detail || err.message || '';
+
       if (err.response?.status === 403) {
         setError('權限不足，請確認帳號是否為 superuser');
+      } else if (serverMessage) {
+        if (serverMessage === "ACCOUNT_LOCKED_MAX_ATTEMPTS") {
+          setError("帳號已被系統停用，請聯繫管理員或自行重設密碼。");
+        }
+        else if (serverMessage.startsWith("INVALID_PASSWORD_REMAINING_")) {
+          const remaining = serverMessage.split("_").pop();
+          setError(`帳號或密碼錯誤（剩餘嘗試次數：${remaining} 次）`);
+        }
+        else {
+          setError(serverMessage === "帳號或密碼錯誤" ? "帳號或密碼錯誤，請重新輸入" : serverMessage);
+        }
       } else {
-        setError('帳號或密碼錯誤，請重新輸入'); 
+        setError('帳號或密碼錯誤，請重新輸入');
       }
     } finally {
       setLoading(false);

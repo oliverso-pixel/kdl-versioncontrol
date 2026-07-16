@@ -59,8 +59,6 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
             
         FAILED_LOGIN_CACHE[current_username] += 1
         current_attempts = FAILED_LOGIN_CACHE[current_username]
-        
-        print(f"🔥 [記憶體計數除錯] 使用者 {current_username} 錯誤次數已累積至: {current_attempts}")
 
         # 判斷是否達到 3 次鎖定
         if current_attempts >= 3:
@@ -86,11 +84,18 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
     db.refresh(user)
 
     is_super = bool(getattr(user, "is_superuser", False))
+    user_app_id = getattr(user, "app_id", None)
+    user_department_code = getattr(user, "department_code", None)
+    user_permission_level = getattr(user, "permission_level", 1)
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={
             "sub": str(user.username), 
             "is_superuser": is_super,
+            "app_id": user_app_id,
+            "department_code": user_department_code,
+            "permission_level": user_permission_level
         }, 
         expires_delta=access_token_expires
     )
@@ -104,6 +109,9 @@ async def login_v2(form_data: OAuth2PasswordRequestForm = Depends(), db: Session
             "user_name": str(user.username),
             "is_active": user.is_active,
             "is_superuser": is_super,
+            "app_id": user.app_id,
+            "department_code": user.department_code,
+            "permission_level": user.permission_level,
         }
     }
     return JSONResponse(status_code=200, content=final_response)

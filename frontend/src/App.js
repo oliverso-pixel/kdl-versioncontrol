@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import {
   Home, Package, GitBranch, Smartphone, Users,
   Settings, LogOut, Menu, Bell
@@ -19,22 +19,20 @@ import DeviceMonitoringV2 from './components/v2/DeviceMonitoringV2';
 import UserManagement from './components/v2/UserManagement';
 import AutoLogoutProvider from './components/AutoLogoutProvider';
 import './App.css';
+import AuthUser from './models/AuthUser'; 
 
-function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
+function MainLayout({ setIsAuthenticated }) {
   const [currentView, setCurrentView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
+  const user = AuthUser.fromStorage();
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('apiMode');
-    localStorage.removeItem('isSuperuser');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userName');
+    AuthUser.logoutAndClear();
     setIsAuthenticated(false);
   };
 
-  const navigation = apiMode === 'v1' ? [
+  const navigation = user.apiMode === 'v1' ? [
     { name: '儀表板', icon: Home, view: 'dashboard' },
     { name: '應用程式管理', icon: Package, view: 'applications' },
     { name: '分支管理', icon: GitBranch, view: 'branches' },
@@ -43,10 +41,10 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
     { name: '系統設定', icon: Settings, view: 'settings' },
   ] : [
     { name: '儀表板', icon: Home, view: 'dashboard' },
-    { name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' },
-    { name: '設備監控 (V2)', icon: Smartphone, view: 'devices_v2' },
-    ...(isSuperuser ? [{ name: '帳號管理', icon: Users, view: 'users_v2' }] : []),
-    ...(isSuperuser ? [{ name: '系統設定', icon: Settings, view: 'settings' }] : []),
+    ...(user.isAccessibleLevel(1) ? [{ name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' }] : []),
+    ...(user.isAccessibleLevel(1) ? [{ name: '設備監控 (V2)', icon: Smartphone, view: 'devices_v2' }] : []),
+    ...(user.isAccessibleLevel(3) ? [{ name: '帳號管理', icon: Users, view: 'users_v2' }] : []),
+    ...(user.isAccessibleLevel(3) ? [{ name: '系統設定', icon: Settings, view: 'settings' }] : []),
   ];
 
   const renderContent = () => {
@@ -70,7 +68,7 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
       case 'devices_v2':
         return <DeviceMonitoringV2 />;
       case 'users_v2':
-        if (!isSuperuser) {
+        if (!user.isAccessibleLevel(3)) {
           return <Navigate to="/" replace />;
         }
         return <UserManagement />;
@@ -95,6 +93,12 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
               <Menu className="h-6 w-6" />
             </button>
           </div>
+
+          {sidebarOpen && user.userName && (
+            <div className="px-4 py-2 text-xs text-gray-400 border-b border-gray-700">
+              當前用戶: {user.userName} ({user.departmentCode || '無部門'})
+            </div>
+          )}
 
           <nav className="flex-1 space-y-1 px-2 py-4">
             {navigation.map((item) => (
@@ -144,9 +148,8 @@ function MainLayout({ apiMode, setApiMode, setIsAuthenticated, isSuperuser }) {
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [apiMode, setApiMode] = useState(localStorage.getItem('apiMode') || 'v1');
   const [loading, setLoading] = useState(true);
-  const [isSuperuser, setIsSuperuser] = useState(localStorage.getItem('isSuperuser') === 'true');
+  const [authStateTick, setAuthStateTick] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -159,7 +162,6 @@ function App() {
     const handleStorageChange = (e) => {
       if ((e.key === 'token' || e.key === 'apiMode' || e.key === null) && !e.newValue) {
         setIsAuthenticated(false);
-        setIsSuperuser(false);
       }
     };
 
@@ -170,11 +172,9 @@ function App() {
     };
   }, []);
 
-  const handleLogin = (token, mode, superuserFlag = false) => {
-    localStorage.setItem('token', token);
-    setApiMode(mode);
-    setIsSuperuser(superuserFlag);
+  const handleLogin = () => {
     setIsAuthenticated(true);
+    setAuthStateTick(prev => prev + 1);
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center">載入中...</div>;
@@ -198,8 +198,7 @@ function App() {
             isAuthenticated ? (
               <AutoLogoutProvider>
                 <MainLayout
-                  apiMode={apiMode}
-                  isSuperuser={isSuperuser}
+                  key={authStateTick}
                   setIsAuthenticated={setIsAuthenticated}
                 />
               </AutoLogoutProvider>

@@ -1,4 +1,3 @@
-// src/services/api.js
 import { API_BASE } from '../utils/constants';
 
 class ApiService {
@@ -260,6 +259,7 @@ class ApiService {
 
   // Users Management V2
   async getUsers() { return this.request('/api/v2/admin/users'); }
+  async getDepartments() { return this.request('/api/v2/departments'); }
   async createUser(data) { return this.request('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }); }
   async deleteUser(userId) { return this.request(`/api/v2/admin/users/${userId}`, { method: 'DELETE' }); }
   async toggleUserActiveStatus(userId) { return this.request(`/api/v2/admin/users/${userId}/toggle-active`, { method: 'PATCH' }); }

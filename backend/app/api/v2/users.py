@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -6,40 +7,117 @@ from ...database import get_db
 from ...core.security import verify_token, hash_password
 from ...models.admin_user import AdminUser
 from .auth import FAILED_LOGIN_CACHE
+from ...models.department import Department
+import json 
 
 router = APIRouter(tags=["Users V2"])
 
+class DepartmentResponse(BaseModel):
+    dept_code: str
+    dept_name_zh: str
+    dept_name_en: str
+
+    class Config:
+        from_attributes = True
+
 @router.get("/admin/users")
 async def get_users(db: Session = Depends(get_db), token: dict = Depends(verify_token)):
-    users = db.query(AdminUser).all()
+    operator_is_super = bool(token.get("is_superuser", False))
+    operator_dept_code = token.get("department_code")
+
+    base_query = db.query(AdminUser, Department).outerjoin(
+        Department, AdminUser.department_code == Department.dept_code
+    )
+
+    if not operator_is_super:
+        if not operator_dept_code:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您的帳號未配置部門代碼，無法查詢人員清單。"
+            )
+        base_query = base_query.filter(AdminUser.department_code == operator_dept_code)
+
+    query_results = base_query.all()
     
-    return [
-        {
+    result = []
+    for u, dept in query_results:
+        raw_app_id = getattr(u, "app_id", None)
+        parsed_app_ids = []
+        if raw_app_id:
+            try:
+                parsed_app_ids = json.loads(raw_app_id) if isinstance(raw_app_id, str) and raw_app_id.startswith('[') else raw_app_id
+                if not isinstance(parsed_app_ids, list):
+                    parsed_app_ids = [parsed_app_ids] if parsed_app_ids else []
+            except Exception:
+                parsed_app_ids = [raw_app_id] if raw_app_id else []
+
+        is_super = bool(getattr(u, "is_superuser", False))
+        perm_level = getattr(u, "permission_level", 1)
+
+        result.append({
             "id": u.id, 
             "username": u.username, 
             "email": u.email, 
             "is_active": u.is_active, 
-            "is_superuser": bool(getattr(u, "is_superuser", False)),
-            "last_login": u.last_login
-        } 
-        for u in users
-    ]
+            "is_superuser": is_super,
+            "last_login": u.last_login,
+            "app_id": parsed_app_ids,  # 回傳陣列
+            "permission_level": perm_level,
+            "is_normal_user": (perm_level == 0) and not is_super,
+            "department_code": u.department_code,
+            "department_name_zh": dept.dept_name_zh if dept else None,
+            "department_name_en": dept.dept_name_en if dept else None
+        })
+        
+    return result
+
+@router.get("/departments", response_model=List[DepartmentResponse])
+async def get_departments(
+    db: Session = Depends(get_db),
+    token: dict = Depends(verify_token)
+):
+    departments = db.query(Department).all()
+    return departments
 
 @router.post("/admin/users")
 async def create_user(data: dict, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    # 只有超級管理員才能建立另一個超級管理員
+    target_is_superuser = bool(data.get("is_superuser", False))
+    if target_is_superuser:
+        current_operator_is_super = bool(token.get("is_superuser", False))
+        if not current_operator_is_super:
+            raise HTTPException(
+                status_code=403, 
+                detail="權限不足。只有超級管理員才可以建立超級管理員帳號。"
+            )
+
+    # 檢查帳號重複
     if db.query(AdminUser).filter(AdminUser.username == data["username"]).first():
         raise HTTPException(status_code=400, detail="accountExists")
     
+    # 檢查 Email 重複
     user_email = data.get("email", "").strip()
     if user_email:
         if db.query(AdminUser).filter(AdminUser.email == user_email).first():
             raise HTTPException(status_code=400, detail="emailExists")
 
+    # app_id 陣列
+    front_app_ids = data.get("app_id", [])
+    db_app_id_value = json.dumps(front_app_ids) if isinstance(front_app_ids, list) else front_app_ids
+
+    # 區分超級管理員與一般專案管理員的寫入規則
+    final_dept_code = None if target_is_superuser else data.get("dept_code")
+    final_perm_level = 3 if target_is_superuser else int(data.get("permission_level", 2))
+
+    # 新增至資料庫
     new_user = AdminUser(
         username=data["username"],
         email=user_email,
         hashed_password=hash_password(data["password"]),
-        is_superuser=bool(data.get("is_superuser", False)),
+        is_superuser=target_is_superuser,
+        app_id=db_app_id_value,
+        department_code=final_dept_code,
+        permission_level=final_perm_level
     )
     db.add(new_user)
     db.commit()
