@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
-
 from ...database import get_db
 from ...core.security import verify_token, hash_password
 from ...models.admin_user import AdminUser
@@ -125,6 +124,9 @@ async def create_user(data: dict, db: Session = Depends(get_db), token: dict = D
 
 @router.delete("/admin/users/{user_id}")
 async def delete_user(user_id: int, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    if not token.get("is_superuser") and int(token.get("permission_level", 0)) < 3:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="權限不足")
+
     user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
     if user:
         db.delete(user)
@@ -134,13 +136,21 @@ async def delete_user(user_id: int, db: Session = Depends(get_db), token: dict =
 @router.patch("/admin/users/{user_id}/toggle-active")
 async def toggle_user_active(user_id: int, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
     """直接手動停用或啟用某個管理員帳號"""
-    if not token.get("is_superuser"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="權限不足")
-        
+    
     user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="找不到該使用者")
         
+    current_permission = int(token.get("permission_level", 0))
+    is_superuser = token.get("is_superuser", False)
+    
+    if not is_superuser:
+        if current_permission < 3 or current_permission <= user.permission_level:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="權限不足，您無法變更同等或更高階級使用者的狀態"
+            )
+
     user.is_active = not user.is_active
     
     # 除了清空資料庫計數，也必須清空記憶體快取
@@ -155,17 +165,51 @@ async def toggle_user_active(user_id: int, db: Session = Depends(get_db), token:
     db.refresh(user)
     
     status_str = "啟用" if user.is_active else "停用"
-    return {"status": "success", "detail": f"已將管理員 {user.username} 的狀態改為：{status_str}"}
-    
-@router.patch("/admin/users/{user_id}/promote")
-async def promote_user(user_id: int, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
-    if not token.get("is_superuser"):
-        raise HTTPException(status_code=403, detail="權限不足")
-        
+    return {
+        "status": "success", 
+        "detail": f"已將管理員 {user.username} 的狀態改為：{status_str}",
+        "is_active": user.is_active
+    }
+
+@router.patch("/admin/users/{user_id}/permission")
+async def update_user_permission(
+    user_id: int, 
+    action: str = Query(..., regex="^(promote|demote)$"),
+    db: Session = Depends(get_db), 
+    token: dict = Depends(verify_token)
+):
     user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="找不到該使用者")
+    
+    current_permission = int(token.get("permission_level", 0))
+    is_superuser = token.get("is_superuser", False)
+
+    # 無論升降，操作者絕對不能動階級高於或等於自己的人（防同階互整、自我提權、或弄長官）
+    # if current_permission <= user.permission_level:
+    #     raise HTTPException(status_code=403, detail="權限不足，您無法變更同等或更高階級使用者的權限")
+
+    # 提權
+    if action == "promote":
+        if not is_superuser and current_permission < 3:
+            raise HTTPException(status_code=403, detail="權限不足，必須是高級管理員或超級管理員才能提權")
         
-    user.is_superuser = True  # 🚀 強制設為超級管理員
+        user.permission_level = 3
+        detail_msg = f"已將 {user.username} 提升為高級管理員"
+
+    # 降職
+    elif action == "demote":
+        if not is_superuser:
+            raise HTTPException(status_code=403, detail="權限不足，只有超級管理員可以執行降職操作")
+        
+        user.permission_level = 2
+        detail_msg = f"已將 {user.username} 降職"
+
     db.commit()
-    return {"status": "success", "detail": f"已將 {user.username} 提升為超級管理員"}
+    db.refresh(user)
+               
+    return {
+        "status": "success", 
+        "detail": detail_msg,
+        "permission_level": user.permission_level
+    }

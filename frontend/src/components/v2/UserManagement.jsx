@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert } from 'lucide-react';
 import api from '../../services/api';
-import Select from 'react-select';
 
 const UserManagement = () => {
-  const currentUserName = localStorage.getItem('userName');
   const currentUserId = localStorage.getItem('userId');
   const isSuperuser = localStorage.getItem('isSuperuser') === 'true';
-  const pemissionLevel = parseInt(localStorage.getItem('permissionLevel') || '1', 10);
+  const departmentCode = localStorage.getItem('departmentCode');
+  const permissionLevel = parseInt(localStorage.getItem('permissionLevel') || '1', 10);
+  const hasManagePermission = isSuperuser || permissionLevel >= 3;
+  const isCurrentUser = (id) => String(currentUserId) === String(id);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -18,7 +19,7 @@ const UserManagement = () => {
     is_superuser: false,
     app_id: [],
     permission_level: 2,
-    dept_code: ''
+    dept_code: departmentCode
   });
   const [apps, setApps] = useState([]);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
@@ -66,7 +67,7 @@ const UserManagement = () => {
   const handleCreateUser = async (e) => {
     e.preventDefault();
 
-    if (!isSuperuser && pemissionLevel < 3) {
+    if (!hasManagePermission) {
       alert('您沒有權限建立新使用者，請聯絡管理員！');
       return;
     }
@@ -81,7 +82,7 @@ const UserManagement = () => {
       return;
     }
 
-    if (!newUser.dept_code) {
+    if (!newUser.is_superuser && !newUser.dept_code) {
       alert('請選擇部門代碼！');
       return;
     }
@@ -95,7 +96,7 @@ const UserManagement = () => {
     try {
       await api.createUser(newUser);
       setShowCreateModal(false);
-      setNewUser({ username: '', password: '', email: '', is_superuser: false, dept_code: '', app_id: '', permission_level: 2 });
+      setNewUser({ username: '', password: '', email: '', is_superuser: false, dept_code: '', app_id: [], permission_level: 2 });
       fetchUsers();
       alert('使用者建立成功');
     } catch (err) {
@@ -168,17 +169,31 @@ const UserManagement = () => {
     }
   };
 
-  const handlePromoteToSuperuser = async (user) => {
-    const confirmPromote = window.confirm(`確定要將使用者「${user.username}」提升為超級管理員 (Superuser) 嗎？\n此操作將賦予該帳號最高系統權限！`);
-    if (!confirmPromote) return;
+  const handlePromotionORDemotion = async (user) => {
+    const isCurrentlyPromoted = user.permission_level === 3;
+
+    let action = "promote";
+    let confirmMessage = `確定要將使用者「${user.username}」提升為高級管理員嗎？`;
+
+    if (isCurrentlyPromoted) {
+      if (!isSuperuser) {
+        alert("權限不足，只有超級管理員可以將他人降職！");
+        return;
+      }
+      action = "demote";
+      confirmMessage = `確定要將管理員「${user.username}」降職嗎？`;
+    }
+
+    const proceed = window.confirm(confirmMessage);
+    if (!proceed) return;
 
     try {
-      await api.promoteUserToSuperuser(user.id);
+      await api.updateUserPermission(user.id, action);
 
-      alert(`已成功將「${user.username}」提升為超級管理員！`);
+      alert(action === "promote" ? `已成功提升「${user.username}」！` : `已成功降職「${user.username}」！`);
       if (typeof fetchUsers === 'function') fetchUsers();
     } catch (err) {
-      console.error('提升權限失敗:', err);
+      console.error('權限變更失敗:', err);
       alert(err.response?.data?.detail || '操作失敗，請檢查權限。');
     }
   };
@@ -341,30 +356,31 @@ const UserManagement = () => {
                       )}
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        分配所屬部門 (Department)
-                      </label>
-                      <select
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
-                        value={newUser.dept_code || ''}
-                        onFocus={() => setIsAppMenuOpen(false)} //  選到部門時，自動收起App多選選單
-                        onChange={(e) => setNewUser({ ...newUser, dept_code: e.target.value })}
-                        required={!newUser.is_superuser} // 非超級管理員時此欄位必填
-                      >
-                        <option value="">-- 請選擇部門 --</option>
-                        {Array.isArray(departments) && departments.map((dept) => {
-                          const displayLabel = `${dept.dept_name_zh} / ${dept.dept_name_en}`;
+                    {isSuperuser ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">
+                          分配所屬部門 (Department)
+                        </label>
+                        <select
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+                          value={newUser.dept_code || departmentCode}
+                          onFocus={() => setIsAppMenuOpen(false)}
+                          onChange={(e) => setNewUser({ ...newUser, dept_code: e.target.value })}
+                          required={!newUser.is_superuser}
+                        >
+                          <option value="">-- 請選擇部門 --</option>
+                          {Array.isArray(departments) && departments.map((dept) => {
+                            const displayLabel = `${dept.dept_name_zh} / ${dept.dept_name_en}`;
 
-                          return (
-                            <option key={dept.dept_code} value={dept.dept_code}>
-                              {displayLabel} ({dept.dept_code})
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
+                            return (
+                              <option key={dept.dept_code} value={dept.dept_code}>
+                                {displayLabel} ({dept.dept_code})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    ) : null}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         管理員級別 (Permission Level) *
@@ -435,13 +451,15 @@ const UserManagement = () => {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">後台帳號管理</h1>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          新增使用者
-        </button>
+        {hasManagePermission && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            新增使用者
+          </button>
+        )}
       </div>
 
       <div className="bg-white shadow overflow-hidden sm:rounded-lg overflow-x-auto max-w-full">
@@ -478,22 +496,29 @@ const UserManagement = () => {
                         {user.username}
                       </div>
                       {user.is_superuser ? (
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
                           超級管理員
+                        </span>
+                      ) : user.permission_level === 3 ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                          高級管理員
+                        </span>
+                      ) : user.permission_level === 2 ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                          一般管理員
                         </span>
                       ) : (
                         <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
-                          一般管理員
+                          普通用戶
                         </span>
                       )}
                       <div className="text-xs text-gray-500 mt-1">
-                        <span className="font-semibold text-gray-700">部門：</span>
                         {user.department_code ? (
-                          <span>
-                            {user.department_code} ({user.department_name_zh} / {user.department_name_en})
+                          <span className="font-semibold text-gray-700">
+                            部門：{user.department_code} ({user.department_name_zh} / {user.department_name_en})
                           </span>
                         ) : (
-                          <span className="text-gray-400">未分派</span>
+                          null
                         )}
                       </div>
                     </div>
@@ -522,46 +547,59 @@ const UserManagement = () => {
                     {formatDateTime(user.last_login)}
                   </div>
                 </td>
-                {/* 操作欄位 */}
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <div className="flex items-center justify-end gap-1.5">
-                    {/* 1. 啟用/停用按鈕 */}
-                    {String(currentUserId) !== String(user.id) && (
-                      !(user.is_superuser && user.is_active) ? (
+                {/* 操作欄位  */}
+                {(hasManagePermission && !isCurrentUser(user.id) && !user.is_superuser) && (
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex items-center justify-end gap-1.5">
+
+                      {/* 啟用/停用按鈕 */}
+                      {(isSuperuser || (permissionLevel >= 3 && permissionLevel > user.permission_level)) && (
                         <button
                           onClick={() => handleToggleUserActive(user)}
                           className={`transition-colors p-1 rounded bg-gray-50 border border-gray-100 ${user.is_active
                             ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                             : 'text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50'
                             }`}
-                          title={user.is_superuser ? "啟用超級管理員" : (user.is_active ? "停用帳號" : "啟用帳號")}
+                          title={user.is_active ? "停用帳號" : "啟用帳號"}
                         >
                           {user.is_active ? <Unlock className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
                         </button>
-                      ) : null
-                    )}
-                    {/* 2. 提升為超級管理員按鈕 */}
-                    {!user.is_superuser && (
-                      <button
-                        onClick={() => handlePromoteToSuperuser(user)}
-                        className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
-                        title="提升為超級管理員"
-                      >
-                        <ShieldAlert className="h-5 w-5" />
-                      </button>
-                    )}
-                    {/* 3. 刪除使用者按鈕 */}
-                    {String(currentUserId) !== String(user.id) && !user.is_superuser && (
-                      <button
-                        onClick={() => handleDeleteUser(user)}
-                        className="text-red-500 hover:text-red-900 hover:bg-red-50 bg-gray-50 border border-gray-100 p-1 rounded transition-colors"
-                        title="刪除使用者"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    )}
-                  </div>
-                </td>
+                      )}
+
+                      {/* 變更權限管理按鈕（支援提升與降職） */}
+                      {user.permission_level < 3 ? (
+                        <button
+                          onClick={() => handlePromotionORDemotion(user)}
+                          className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
+                          title="提升為高級管理員"
+                        >
+                          <ShieldAlert className="h-5 w-5" />
+                        </button>
+                      ) : (
+                        isSuperuser && (
+                          <button
+                            onClick={() => handlePromotionORDemotion(user)}
+                            className="text-rose-600 hover:text-rose-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-rose-50 transition-colors"
+                            title="解除高級管理員身份"
+                          >
+                            <ShieldAlert className="h-5 w-5" />
+                          </button>
+                        )
+                      )}
+
+                      {/* 刪除使用者按鈕 */}
+                      {isSuperuser && (
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="text-red-500 hover:text-red-900 hover:bg-red-50 bg-gray-50 border border-gray-100 p-1 rounded transition-colors"
+                          title="刪除使用者"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

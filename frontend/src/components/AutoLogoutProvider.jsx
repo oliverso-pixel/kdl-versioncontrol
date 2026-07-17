@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
 
 const AutoLogoutProvider = ({ children }) => {
     const navigate = useNavigate();
@@ -9,7 +8,11 @@ const AutoLogoutProvider = ({ children }) => {
     const INACTIVITY_TIME = 30 * 60 * 1000; 
 
     const handleAutoLogout = () => {
-        api.logoutAndClearStorage();
+        localStorage.removeItem('token');
+        localStorage.removeItem('apiMode');
+        localStorage.removeItem('isSuperuser');
+        localStorage.removeItem('userId');
+        localStorage.removeItem('userName');
         alert("您已經超過 30 分鐘沒有操作，將自動登出。");
         window.location.href = '/login?reason=timeout';
     };
