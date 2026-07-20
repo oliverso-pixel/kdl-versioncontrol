@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     APK_STORAGE_PATH: str = os.getenv("APK_STORAGE_PATH", "./app/static/apks/")
     MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", 500000000))
     
+    # Nominatim 反向地理編碼 server (查詢中文地址用)；留空 = 停用反查，address 一律寫 NULL
+    NOMINATIM_BASE_URL: str = os.getenv("NOMINATIM_BASE_URL", "")
+    # 地址回填任務：每隔多少秒補一輪、每輪最多幾筆
+    GEOCODE_BACKFILL_INTERVAL: int = int(os.getenv("GEOCODE_BACKFILL_INTERVAL", 300))
+    GEOCODE_BACKFILL_BATCH: int = int(os.getenv("GEOCODE_BACKFILL_BATCH", 100))
+
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8080",
