@@ -99,81 +99,6 @@ async def check_version_v2(
         release_notes=latest_version.release_notes if needs_update else None
     )
 
-# @router.post("/report-download")
-# async def report_download(
-#     request: DownloadReportRequest,  # 使用請求體模型
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Report download status"""
-    
-#     logger.info(f"Download report: {request.app_id} v{request.version_code} - {request.status}")
-    
-#     # 保存下載日誌
-#     device = db.query(Device).filter(
-#         Device.android_id == request.device_info.android_id
-#     ).first()
-    
-#     if device:
-#         app = db.query(Application).filter(
-#             Application.app_id == request.app_id
-#         ).first()
-        
-#         if app:
-#             update_log = UpdateLog(
-#                 device_id=device.id,
-#                 application_id=app.id,
-#                 to_version=str(request.version_code),
-#                 update_type="download",
-#                 status=request.status
-#             )
-            
-#             if request.error_message:
-#                 # 存儲錯誤訊息
-#                 update_log.additional_info = json.dumps({"error": request.error_message})
-            
-#             db.add(update_log)
-#             db.commit()
-            
-#             logger.info(f"Download status logged for device {device.android_id}")
-    
-#     return {"status": "logged"}
-
-# @router.post("/report-install")
-# async def report_install(
-#     request: InstallReportRequest,
-#     db: Session = Depends(get_db),
-#     token_payload: dict = Depends(verify_token)
-# ):
-#     """Report installation status"""
-    
-#     logger.info(f"Install report: {request.app_id} v{request.version_code} - {request.status}")
-    
-#     # 更新設備資訊
-#     if request.status == "success":
-#         device = db.query(Device).filter(
-#             Device.android_id == request.device_info.android_id
-#         ).first()
-        
-#         if device:
-#             # 記錄安裝成功
-#             app = db.query(Application).filter(
-#                 Application.app_id == request.app_id
-#             ).first()
-            
-#             if app:
-#                 update_log = UpdateLog(
-#                     device_id=device.id,
-#                     application_id=app.id,
-#                     to_version=str(request.version_code),
-#                     update_type="install",
-#                     status=request.status
-#                 )
-#                 db.add(update_log)
-#                 db.commit()
-    
-#     return {"status": "logged"}
-
 @router.post("/devices/{android_id}/report-updated")
 async def report_updated_v2(
     android_id: str,
@@ -191,22 +116,19 @@ async def report_updated_v2(
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
 
-    # 尋找是哪個版本，以便綁定 branch_id
     version = db.query(Version).filter(and_(Version.application_id == app.id, Version.version_code == request.version_code)).first()
     
-    # 寫入更新成功的日誌 (update_type 設為 'updated')
     update_log = UpdateLog(
         device_id=device.id,
         application_id=app.id,
         branch_id=version.branch_id if version else None,
-        from_version="unknown", # 因為簡化了流程，這裡不再追蹤升級前的版本，或者由 App 帶上來
+        from_version="unknown",
         to_version=str(request.version_code),
         update_type="updated",
         status=request.status
     )
     db.add(update_log)
     
-    # 同時更新 device_installed_apps 確保後台看得到最新狀態
     from sqlalchemy import text
     db.execute(text("""
         INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 

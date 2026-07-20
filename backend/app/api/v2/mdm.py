@@ -233,24 +233,27 @@ async def device_websocket(
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
 
-                gps_time_str = message.get("GPStime")
-                try:
-                    # gps_time = datetime.fromisoformat(gps_time_str) if gps_time_str else get_hkt_now()
-                    if gps_time_str:
-                        gps_time = datetime.fromisoformat(gps_time_str)
+                gps_time_raw = message.get("GPStime")
+                if gps_time_raw:
+                    if isinstance(gps_time_raw, (int, float)):
+                        # 將毫秒轉換為秒 (除以 1000) 並轉為 datetime
+                        gps_time = datetime.fromtimestamp(gps_time_raw / 1000.0)
                     else:
-                        gps_time = get_hkt_now()
-                except ValueError:
+                        try:
+                            gps_time = datetime.fromisoformat(str(gps_time_raw))
+                        except ValueError:
+                            gps_time = get_hkt_now()
+                else:
                     gps_time = get_hkt_now()
 
                 if gps_time.tzinfo is not None:
                     gps_time = gps_time.replace(tzinfo=None)
 
-                route = message.get("Route")
-                altitude = message.get("Altitude")
-                address = message.get("Address")
-                satellites = message.get("Satellites")
-                conn_status = message.get("Connection_status", "online")
+                route = message.get("route", message.get("Route"))
+                altitude = message.get("altitude", message.get("Altitude"))
+                address = message.get("address", message.get("Address"))
+                satellites = message.get("satellites_used", message.get("Satellites"))
+                conn_status = message.get("connection_status", message.get("Connection_status", "online"))
 
                 if not device.gps_time or gps_time > device.gps_time:
                     device.battery_level = message.get("battery")
@@ -344,7 +347,7 @@ async def device_websocket(
 
             elif message.get("type") == "sync_apps":
                 apps_list = message.get("apps", [])
-                logger.info(f"📥 [MDM WS App 同步] 設備: {android_id} | 清單: {apps_list}")
+                # logger.info(f"📥 [MDM WS App 同步] 設備: {android_id} | 清單: {apps_list}")
                 
                 reported_app_ids = {app['app_id'] for app in apps_list}
                 
@@ -464,7 +467,6 @@ async def device_websocket(
                         update_log.additional_info = json.dumps({"error": error_msg})
                     db.add(update_log)
                     
-                    # 【關鍵修改】只有當 report_install 且 status 為 success 時，才給予 Default Config
                     if update_type == "install" and status == "success":
                         db.execute(text("""
                             INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
@@ -813,6 +815,7 @@ async def get_admin_store_app_details(
                 "release_notes": latest_version.release_notes,
                 "file_size": latest_version.file_size,
                 "force_update": latest_version.force_update,
+                "apk_hash": latest_version.apk_file_hash,
                 "created_at": latest_version.created_at.isoformat()
             },
             "version_history": [

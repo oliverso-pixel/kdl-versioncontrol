@@ -5,16 +5,15 @@ import {
 } from 'lucide-react';
 import Login from './components/Auth/Login';
 import Dashboard from './components/Dashboard/Dashboard';
-import ApplicationManagement from './components/Applications/ApplicationManagement';
-import BranchManagement from './components/Branches/BranchManagement';
-import VersionManagement from './components/Versions/VersionManagement';
+// import ApplicationManagement from './components/Applications/ApplicationManagement';
+// import BranchManagement from './components/Branches/BranchManagement';
+// import VersionManagement from './components/Versions/VersionManagement';
 import DeviceMonitoring from './components/Devices/DeviceMonitoring';
 import UpdateLogs from './components/Logs/UpdateLogs';
 import SystemSettings from './components/Settings/SystemSettings';
 import NotificationCenter from './components/Notifications/NotificationCenter';
-import StoreManagement from './components/v2/StoreManagement';
-import DeviceMonitoringV2 from './components/v2/DeviceMonitoringV2';
-import UserManagement from './components/v2/UserManagement';
+import StoreManagement from './components/Store/StoreManagement';
+import UserManagement from './components/User/UserManagement';
 import './App.css';
 
 function App() {
@@ -47,41 +46,34 @@ function App() {
 
   const navigation = apiMode === 'v1' ? [
     { name: '儀表板', icon: Home, view: 'dashboard' },
-    { name: '應用程式管理', icon: Package, view: 'applications' },
-    { name: '分支管理', icon: GitBranch, view: 'branches' },
-    { name: '版本管理', icon: GitBranch, view: 'versions' },
+    // { name: '應用程式管理', icon: Package, view: 'applications' },
+    // { name: '分支管理', icon: GitBranch, view: 'branches' },
+    // { name: '版本管理', icon: GitBranch, view: 'versions' },
     { name: '設備監控', icon: Smartphone, view: 'devices' },
     { name: '系統設定', icon: Settings, view: 'settings' },
   ] : [
     { name: '儀表板', icon: Home, view: 'dashboard' },
-    { name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' },
-    // { name: '版本管理（V1）', icon: GitBranch, view: 'versions' },
-    { name: '設備監控', icon: Smartphone, view: 'devices_v2' },
-    { name: '帳號管理', icon: Users, view: 'users_v2' },
+    { name: '企業商城 (App/版控)', icon: Package, view: 'store' },
+    { name: '設備監控', icon: Smartphone, view: 'devices' },
+    { name: '帳號管理', icon: Users, view: 'users' },
     { name: '系統設定', icon: Settings, view: 'settings' },
   ];
 
   const renderContent = () => {
     switch (currentView) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'applications':
-        return <ApplicationManagement />;
-      case 'branches':
-        return <BranchManagement />;
-      case 'versions':
-        return <VersionManagement />;
-      case 'devices':
-        return <DeviceMonitoring />;
-      case 'logs':
-        return <UpdateLogs />;
-      case 'settings':
-        return <SystemSettings />;
-      case 'store_v2': return <StoreManagement />;
-      case 'devices_v2': return <DeviceMonitoringV2 />;
-      case 'users_v2': return <UserManagement />;
-      default:
-        return <Dashboard />;
+      case 'dashboard': return <Dashboard />;
+      // case 'applications':
+      //   return <ApplicationManagement />;
+      // case 'branches':
+      //   return <BranchManagement />;
+      // case 'versions':
+      //   return <VersionManagement />;
+      case 'devices': return <DeviceMonitoring />;
+      case 'logs': return <UpdateLogs />;
+      case 'settings': return <SystemSettings />;
+      case 'store': return <StoreManagement />;
+      case 'users': return <UserManagement />;
+      default: return <Dashboard />;
     }
   };
 

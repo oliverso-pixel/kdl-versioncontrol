@@ -64,10 +64,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # Include routers
-# app.include_router(auth.router, tags=["Authentication"])
-# app.include_router(version_check.router, tags=["Version Check (V1)"])
 app.include_router(admin.router, tags=["Admin"])
-# app.include_router(websocket.router, tags=["WebSocket (V1)"])
 app.include_router(statistics.router, tags=["Statistics"])
 app.include_router(database_mgmt.router, tags=["Database Management"])
 app.include_router(settings_api.router, tags=["System Settings"])

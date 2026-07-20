@@ -35,6 +35,21 @@ const StoreManagement = () => {
     file: null
   });
 
+  // DO QR Code 狀態控管
+  const [showQrConfigModal, setShowQrConfigModal] = useState(false); // 第一步：輸入資訊
+  const [showQrResultModal, setShowQrResultModal] = useState(false); // 第二步：顯示條碼
+  const [qrVersionData, setQrVersionData] = useState(null);
+  const [wifiSsid, setWifiSsid] = useState('KDL-IT');
+  const [wifiPassword, setWifiPassword] = useState('k#c1719:3B');
+  // const [adminComponent, setAdminComponent] = useState('com.kowloondairy.mdmapp/.admin.MdmDeviceAdminReceiver');
+
+  // 💡 新增：用來監聽 Modal 狀態與資料是否有被正確更新
+  useEffect(() => {
+    console.log("🔍 [狀態追蹤] Config Modal 開關狀態:", showQrConfigModal);
+    console.log("🔍 [狀態追蹤] Result Modal 開關狀態:", showQrResultModal);
+    console.log("🔍 [狀態追蹤] 當前選中的 QR 版本資料:", qrVersionData);
+  }, [showQrConfigModal, showQrResultModal, qrVersionData]);
+
   useEffect(() => {
     fetchApps();
   }, []);
@@ -272,6 +287,23 @@ const StoreManagement = () => {
                     >
                       <Download className="w-4 h-4 mr-1"/> 下載 APK 檔案
                     </button>
+
+                    {appDetails.app_id === 'com.kowloondairy.mdmapp' && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQrVersionData({
+                            ...b.latest_version, 
+                            branch_name: b.branch_name
+                          });
+                          setShowQrConfigModal(true);
+                        }}
+                        className="bg-purple-600 text-white hover:bg-purple-700 px-3 py-2 rounded flex items-center shadow-sm transition text-sm"
+                      >
+                        📱 生成 DO 條碼
+                      </button>
+                    )}
+
                     <button onClick={() => toggleHistory(b.branch_name)} className="bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-2 rounded transition text-sm">
                       {expandedHistory[b.branch_name] ? '隱藏歷史紀錄' : '歷史版本紀錄'}
                     </button>
@@ -296,7 +328,6 @@ const StoreManagement = () => {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {/* 使用 slice(1) 略過第一筆，因為第一筆就是當前的最新版本 */}
                           {b.version_history.slice(1).map((vh, idx) => (
                             <tr key={idx} className="hover:bg-gray-50">
                               <td className="px-4 py-2 whitespace-nowrap">{vh.version_name}</td>
@@ -444,6 +475,106 @@ const StoreManagement = () => {
           </div>
         )}
 
+        {/* Device Owner Provisioning QR Code Modal */}
+        {/* 第一步：DO 條碼參數設定對話框 */}
+        {showQrConfigModal && (
+          <div className="fixed z-20 inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl">
+              <h3 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">Step 1: 配置初始化參數</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-600 uppercase">Wi-Fi 名稱 (SSID)</label>
+                  <input type="text" className="w-full border p-2 rounded mt-1 text-sm" value={wifiSsid} onChange={e => setWifiSsid(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-600 uppercase">Wi-Fi 密碼</label>
+                  <input type="text" className="w-full border p-2 rounded mt-1 text-sm" value={wifiPassword} onChange={e => setWifiPassword(e.target.value)} />
+                </div>
+                {/* 💡 已經移除 Admin Component Name 的輸入框 */}
+              </div>
+
+              <div className="flex justify-end gap-2 mt-6">
+                <button onClick={() => setShowQrConfigModal(false)} className="px-4 py-2 text-gray-500 text-sm">取消</button>
+                <button 
+                  onClick={() => { setShowQrConfigModal(false); setShowQrResultModal(true); }}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition"
+                >
+                  生成條碼 →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 第二步：顯示 QR Code 結果對話框 */}
+        {showQrResultModal && qrVersionData && (
+          <div className="fixed z-30 inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl text-center">
+              <h3 className="text-2xl font-black text-gray-900 mb-2">Device Owner QR Code</h3>
+              <p className="text-sm text-gray-500 mb-6">請在設備 Welcome 畫面連點 6 下後掃描</p>
+
+              {(() => {
+                let base64Checksum = "";
+                if (qrVersionData.apk_hash) {
+                  try {
+                    const bytes = new Uint8Array(qrVersionData.apk_hash.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                    let binary = "";
+                    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                    base64Checksum = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                  } catch(e) { console.error("Hash conversion failed", e); }
+                }
+
+                const baseUrl = API_BASE.startsWith('http') ? API_BASE : `${window.location.origin}${API_BASE}`;
+                const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+
+                const qrPayload = {
+                  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.kowloondairy.mdmapp/.admin.MdmDeviceAdminReceiver",
+                  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": base64Checksum,
+                  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": `${baseUrl}${qrVersionData.download_url}`,
+                  "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": false,
+                  "android.app.extra.PROVISIONING_LOCALE": "zh_TW",
+                  "android.app.extra.PROVISIONING_TIME_ZONE": "Asia/Hong_Kong",
+                  "android.app.extra.PROVISIONING_WIFI_SSID": wifiSsid,
+                  "android.app.extra.PROVISIONING_WIFI_PASSWORD": wifiPassword,
+                  "android.app.extra.PROVISIONING_WIFI_SECURITY_TYPE": wifiPassword ? "WPA" : "NONE"
+                  // "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
+                  //   "api_domain": baseUrl,
+                  //   "ws_domain": wsBaseUrl,
+                  //   "branch": qrVersionData.branch_name || "stable"
+                  // }
+                };
+
+                const jsonString = JSON.stringify(qrPayload);
+                const qrImgUrl = `https://quickchart.io/qr?size=300&margin=1&text=${encodeURIComponent(jsonString)}`;
+
+                return (
+                  <div className="space-y-6">
+                    <div className="inline-block p-4 bg-white border-4 border-purple-100 rounded-3xl">
+                      <img src={qrImgUrl} alt="QR Code" className="w-[250px] h-[250px]" />
+                    </div>
+                    
+                    <div className="text-left">
+                      <details className="cursor-pointer">
+                        <summary className="text-xs text-indigo-600 font-bold">查看 JSON 詳細內容</summary>
+                        <pre className="mt-2 p-3 bg-gray-900 text-green-400 text-[10px] font-mono rounded-lg max-h-32 overflow-y-auto">
+                          {JSON.stringify(qrPayload, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <button 
+                onClick={() => setShowQrResultModal(false)} 
+                className="mt-8 w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition"
+              >
+                完成並關閉
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
