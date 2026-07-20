@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert, ChevronDown, Settings } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -25,6 +25,9 @@ const UserManagement = () => {
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
   const [isDeptSelectOpen, setIsDeptSelectOpen] = useState(false);
   const [departments, setDepartments] = useState([]);
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [selectedAppIds, setSelectedAppIds] = useState([]);
 
   useEffect(() => {
     fetchUsers();
@@ -202,6 +205,56 @@ const UserManagement = () => {
   const formatDateTime = (dateString) => {
     if (!dateString) return '從未登入';
     return new Date(dateString).toLocaleString('zh-TW');
+  };
+
+  const handleEditAppPermissions = (user) => {
+    setEditingUser(user);
+    setSelectedAppIds(user.app_id || []);
+    setIsPermissionModalOpen(true);
+  };
+
+  const handleCheckboxChange = (appId) => {
+    setSelectedAppIds((prev) =>
+      prev.includes(appId)
+        ? prev.filter((id) => id !== appId)
+        : [...prev, appId]
+    );
+  };
+
+  const getUserPermissionLevel = (user) => Number(user.permission_level ?? 0);
+
+  const canManageTargetUser = (user) => {
+    if (!hasManagePermission || isCurrentUser(user.id) || user.is_superuser) return false;
+    if (isSuperuser) return true;
+    return permissionLevel > getUserPermissionLevel(user);
+  };
+
+  const canEditUserAppPermissions = (user) =>
+    isSuperuser || (permissionLevel >= 3 && permissionLevel > getUserPermissionLevel(user));
+
+  const canToggleUserActive = (user) => canEditUserAppPermissions(user);
+
+  const canChangeUserPermission = (user) =>
+    isSuperuser || (permissionLevel >= 3 && permissionLevel > getUserPermissionLevel(user));
+
+  const handleSavePermissions = async () => {
+    if (!editingUser) return;
+
+    try {
+      await api.updateUserAppPermissions(editingUser.id, selectedAppIds);
+      setIsPermissionModalOpen(false);
+      setEditingUser(null);
+
+      if (typeof fetchUsers === 'function') {
+        await fetchUsers();
+      }
+
+      alert("用戶 App 權限已成功更新！");
+    } catch (err) {
+      console.error("更新 App 權限失敗:", err);
+      const errorDetail = err.response?.data?.detail || err.message || '請稍後再試。';
+      alert(`更新失敗：${errorDetail}`);
+    }
   };
 
   // #region 新增使用者 Modal
@@ -563,12 +616,23 @@ const UserManagement = () => {
                   </div>
                 </td>
                 {/* 操作欄位  */}
-                {(hasManagePermission && !isCurrentUser(user.id) && !user.is_superuser) && (
+                {canManageTargetUser(user) && (
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-1.5">
 
+                      {/* 變更 App 權限按鈕 */}
+                      {canEditUserAppPermissions(user) && (
+                        <button
+                          onClick={() => handleEditAppPermissions(user)}
+                          className="transition-colors p-1 rounded bg-gray-50 border border-gray-100 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-100"
+                          title="變更 App 權限"
+                        >
+                          <Settings className="h-5 w-5" />
+                        </button>
+                      )}
+
                       {/* 啟用/停用按鈕 */}
-                      {(isSuperuser || (permissionLevel >= 3 && permissionLevel > user.permission_level)) && (
+                      {canToggleUserActive(user) && (
                         <button
                           onClick={() => handleToggleUserActive(user)}
                           className={`transition-colors p-1 rounded bg-gray-50 border border-gray-100 ${user.is_active
@@ -582,16 +646,16 @@ const UserManagement = () => {
                       )}
 
                       {/* 變更權限管理按鈕（支援提升與降職） */}
-                      {user.permission_level < 3 ? (
-                        <button
-                          onClick={() => handlePromotionORDemotion(user)}
-                          className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
-                          title="提升為高級管理員"
-                        >
-                          <ShieldAlert className="h-5 w-5" />
-                        </button>
-                      ) : (
-                        isSuperuser && (
+                      {canChangeUserPermission(user) && (
+                        user.permission_level < 3 ? (
+                          <button
+                            onClick={() => handlePromotionORDemotion(user)}
+                            className="text-amber-600 hover:text-amber-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-amber-50 transition-colors"
+                            title="提升為高級管理員"
+                          >
+                            <ShieldAlert className="h-5 w-5" />
+                          </button>
+                        ) : (
                           <button
                             onClick={() => handlePromotionORDemotion(user)}
                             className="text-rose-600 hover:text-rose-900 bg-gray-50 border border-gray-100 p-1 rounded hover:bg-rose-50 transition-colors"
@@ -620,6 +684,69 @@ const UserManagement = () => {
           </tbody>
         </table>
       </div>
+
+      {/* 變更App權限區域 */}
+      {isPermissionModalOpen && editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 animate-fade-in">
+
+            {/* 彈窗標題 */}
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-gray-900">修改 App 存取權限</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                正在編輯使用者：<span className="font-semibold text-gray-700">{editingUser.username}</span>
+              </p>
+            </div>
+
+            {/* App 列表複選框區域 */}
+            <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-2 mb-6 bg-gray-50">
+              {Array.isArray(apps) && apps.length > 0 ? (
+                apps.map((app) => (
+                  <label
+                    key={app.app_id}
+                    className="flex items-center space-x-3 p-2 rounded hover:bg-white border border-transparent hover:border-gray-100 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      checked={selectedAppIds.includes(app.app_id)}
+                      onChange={() => handleCheckboxChange(app.app_id)}
+                    />
+                    <div className="text-sm">
+                      <p className="font-medium text-gray-700">{app.name || app.app_name}</p>
+                      <p className="text-xs text-gray-400">{app.app_id}</p>
+                    </div>
+                  </label>
+                ))
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-4">無可用的 App 列表</p>
+              )}
+            </div>
+
+            {/* 按鈕操作區域 */}
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPermissionModalOpen(false);
+                  setEditingUser(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePermissions}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                確認儲存
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
       {createUserModal}
     </div>
   );
