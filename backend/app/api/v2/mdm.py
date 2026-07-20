@@ -7,7 +7,6 @@ from datetime import datetime
 import json
 import secrets
 import string
-from ...core.geocoder import reverse_geocode_zh
 
 from ...database import get_db
 from ...core.security import verify_token, verify_api_key
@@ -244,18 +243,14 @@ async def device_websocket(
                 
                 # 寫入歷史座標紀錄
                 if message.get("lat") and message.get("lng"):
-                    # 反查中文地址；失敗/超時回 None (寫 NULL)，不阻擋上報
-                    address = await reverse_geocode_zh(message["lat"], message["lng"])
-
                     db.execute(text("""
-                        INSERT INTO device_location_history (device_id, latitude, longitude, battery_level, address)
-                        VALUES (:d_id, :lat, :lng, :bat, , :addr)
+                        INSERT INTO device_location_history (device_id, latitude, longitude, battery_level)
+                        VALUES (:d_id, :lat, :lng, :bat)
                     """), {
                         "d_id": device.id, 
                         "lat": message.get("lat"), 
                         "lng": message.get("lng"), 
-                        "bat": message.get("battery"),
-                        "addr": address
+                        "bat": message.get("battery")
                     })
                 
                 db.commit()
@@ -527,13 +522,13 @@ async def get_device_location_history(android_id: str, limit: int = 50, db: Sess
         raise HTTPException(status_code=404, detail="Device not found")
         
     query = text("""
-        SELECT latitude, longitude, battery_level, address, created_at 
+        SELECT latitude, longitude, battery_level, created_at 
         FROM device_location_history 
         WHERE device_id = :d_id 
         ORDER BY created_at DESC LIMIT :limit
     """)
     history = db.execute(query, {"d_id": device.id, "limit": limit}).fetchall()
-    return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "address": row.address, "time": row.created_at} for row in history]
+    return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.created_at} for row in history]
 
 # ----------------- All Device ----------------- #
 @router.get("/admin/devices")
