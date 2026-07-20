@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert } from 'lucide-react';
+import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert, ChevronDown } from 'lucide-react';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -23,6 +23,7 @@ const UserManagement = () => {
   });
   const [apps, setApps] = useState([]);
   const [isAppMenuOpen, setIsAppMenuOpen] = useState(false);
+  const [isDeptSelectOpen, setIsDeptSelectOpen] = useState(false);
   const [departments, setDepartments] = useState([]);
 
   useEffect(() => {
@@ -321,9 +322,7 @@ const UserManagement = () => {
                           })}
                         </div>
                         <div className="text-gray-400 ml-2 px-1">
-                          <svg className={`h-4 w-4 transform transition-transform duration-200 ${isAppMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
+                          <ChevronDown className={`h-4 w-4 transform transition-transform duration-200 ${isAppMenuOpen ? 'rotate-180' : ''}`} />
                         </div>
                       </div>
 
@@ -357,28 +356,44 @@ const UserManagement = () => {
                     </div>
 
                     {isSuperuser ? (
-                      <div>
+                      <div className="w-full">
                         <label className="block text-sm font-medium text-gray-700">
                           分配所屬部門 (Department)
                         </label>
-                        <select
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
-                          value={newUser.dept_code || departmentCode}
-                          onFocus={() => setIsAppMenuOpen(false)}
-                          onChange={(e) => setNewUser({ ...newUser, dept_code: e.target.value })}
-                          required={!newUser.is_superuser}
-                        >
-                          <option value="">-- 請選擇部門 --</option>
-                          {Array.isArray(departments) && departments.map((dept) => {
-                            const displayLabel = `${dept.dept_name_zh} / ${dept.dept_name_en}`;
+                        <div className="relative w-full mt-1">
+                          <select
+                            className="block w-full appearance-none rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 pr-10 border bg-white"
+                            value={newUser.dept_code || departmentCode}
+                            onFocus={() => {
+                              setIsAppMenuOpen(false);
+                              setIsDeptSelectOpen(true);
+                            }}
+                            onBlur={() => setIsDeptSelectOpen(false)}
+                            onChange={(e) => {
+                              setNewUser({ ...newUser, dept_code: e.target.value });
+                              setIsDeptSelectOpen(false);
+                              e.target.blur();
+                            }}
+                            required={!newUser.is_superuser}
+                          >
+                            <option value="">-- 請選擇部門 --</option>
+                            {Array.isArray(departments) && departments.map((dept) => {
+                              const displayLabel = `${dept.dept_name_zh} / ${dept.dept_name_en}`;
 
-                            return (
-                              <option key={dept.dept_code} value={dept.dept_code}>
-                                {displayLabel} ({dept.dept_code})
-                              </option>
-                            );
-                          })}
-                        </select>
+                              return (
+                                <option key={dept.dept_code} value={dept.dept_code}>
+                                  {displayLabel} ({dept.dept_code})
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400">
+                            <ChevronDown
+                              className={`h-4 w-4 transform transition-transform duration-200 ${isDeptSelectOpen ? 'rotate-180' : 'rotate-0'
+                                }`}
+                            />
+                          </div>
+                        </div>
                       </div>
                     ) : null}
                     <div>
