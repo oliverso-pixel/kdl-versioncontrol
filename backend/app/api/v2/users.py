@@ -213,3 +213,31 @@ async def update_user_permission(
         "detail": detail_msg,
         "permission_level": user.permission_level
     }
+
+@router.patch("/admin/users/{user_id}/AppPermissions")
+async def update_user_app_permissions(
+    user_id: int,
+    app_ids: list[str],
+    db: Session = Depends(get_db),
+    token: dict = Depends(verify_token)
+):
+    user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="找不到該使用者")
+    
+    current_permission = int(token.get("permission_level", 0))
+    is_superuser = token.get("is_superuser", False)
+
+    if not is_superuser and current_permission <= user.permission_level:
+        raise HTTPException(status_code=403, detail="權限不足，無法修改此用戶的權限")
+
+    user.app_id = json.dumps(app_ids) if isinstance(app_ids, list) else app_ids
+    
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "success", 
+        "detail": "用戶 App 權限更新成功",
+        "permission_level": user.permission_level
+    }

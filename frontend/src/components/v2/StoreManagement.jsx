@@ -38,14 +38,24 @@ const StoreManagement = () => {
     fetchApps();
   }, []);
 
-  const fetchApps = async () => {
-    try {
-      const res = await api.getStoreApps(); // V2 商城列表
-      setApps(res.data);
-    } catch (err) {
-      console.error("Failed to fetch store apps:", err);
+const fetchApps = async () => {
+  try {
+    const res = await api.getStoreApps(); // V2 商城列表
+    const storedAppIdList = localStorage.getItem('appId'); 
+    
+    if (storedAppIdList && Array.isArray(res.data)) {
+      const appIdArray = JSON.parse(storedAppIdList);
+      const filteredApps = res.data.filter(app => appIdArray.includes(app.app_id));
+      setApps(filteredApps);
+    } 
+    else {
+      setApps(res.data || []);
     }
-  };
+    
+  } catch (err) {
+    console.error("Failed to fetch store apps:", err);
+  }
+};
 
   const openAppDetails = async (appId) => {
     try {

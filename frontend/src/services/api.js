@@ -264,6 +264,7 @@ class ApiService {
   async deleteUser(userId) { return this.request(`/api/v2/admin/users/${userId}`, { method: 'DELETE' }); }
   async toggleUserActiveStatus(userId) { return this.request(`/api/v2/admin/users/${userId}/toggle-active`, { method: 'PATCH' }); }
   async updateUserPermission(userId, action) { return this.request(`/api/v2/admin/users/${userId}/permission?action=${action}`, { method: 'PATCH' }); }
+  async updateUserAppPermissions(userId, selectedApp) { return this.request(`/api/v2/admin/users/${userId}/AppPermissions`, { method: 'PATCH', body: JSON.stringify(selectedApp), }); }
 
   // Store Management V2
   async getStoreApps() { return this.request('/api/v2/admin/store/apps'); }
@@ -425,7 +426,6 @@ class ApiService {
       }),
     });
   }
-
 }
 
 export default new ApiService();
