@@ -265,7 +265,7 @@ const UserManagement = () => {
           <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
         </div>
 
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-visible shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+        <div className="inline-block align-bottom bg-white rounded-3xl text-left overflow-visible shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg w-full max-h-[calc(100vh-4rem)] overflow-y-auto">
           <form onSubmit={handleCreateUser}>
             <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
               <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
@@ -280,7 +280,7 @@ const UserManagement = () => {
                   <input
                     type="text"
                     required
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm px-3 py-2 border"
+                    className="form-input"
                     value={newUser.username}
                     onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                     placeholder="帳號名稱"
@@ -294,7 +294,7 @@ const UserManagement = () => {
                   <input
                     type="password"
                     required
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm px-3 py-2 border"
+                    className="form-input"
                     value={newUser.password}
                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                     placeholder="設定一組安全的密碼"
@@ -307,7 +307,7 @@ const UserManagement = () => {
                   </label>
                   <input
                     type="email"
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm px-3 py-2 border"
+                    className="form-input"
                     value={newUser.email}
                     onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                     placeholder="manager@example.com"
@@ -415,7 +415,7 @@ const UserManagement = () => {
                         </label>
                         <div className="relative w-full mt-1">
                           <select
-                            className="block w-full appearance-none rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 pr-10 border bg-white"
+                            className="form-select"
                             value={newUser.dept_code || departmentCode}
                             onFocus={() => {
                               setIsAppMenuOpen(false);
@@ -492,14 +492,14 @@ const UserManagement = () => {
             <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
               <button
                 type="submit"
-                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
+                className="modal-primary-button"
               >
                 建立
               </button>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                className="modal-secondary-button"
               >
                 取消
               </button>
@@ -704,22 +704,22 @@ const UserManagement = () => {
                 apps.map((app) => (
                   <label
                     key={app.app_id}
-                    className="flex items-center space-x-3 p-2 rounded hover:bg-white border border-transparent hover:border-gray-100 cursor-pointer transition-colors"
+                    className="app-option"
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="app-checkbox"
                       checked={selectedAppIds.includes(app.app_id)}
                       onChange={() => handleCheckboxChange(app.app_id)}
                     />
                     <div className="text-sm">
-                      <p className="font-medium text-gray-700">{app.name || app.app_name}</p>
-                      <p className="text-xs text-gray-400">{app.app_id}</p>
+                      <p className="app-name">{app.name || app.app_name}</p>
+                      <p className="app-id">{app.app_id}</p>
                     </div>
                   </label>
                 ))
               ) : (
-                <p className="text-sm text-gray-400 text-center py-4">無可用的 App 列表</p>
+                <p className="app-empty">無可用的 App 列表</p>
               )}
             </div>
 
@@ -731,14 +731,14 @@ const UserManagement = () => {
                   setIsPermissionModalOpen(false);
                   setEditingUser(null);
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="permission-modal-secondary-button"
               >
                 取消
               </button>
               <button
                 type="button"
                 onClick={handleSavePermissions}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
+                className="permission-modal-primary-button"
               >
                 確認儲存
               </button>

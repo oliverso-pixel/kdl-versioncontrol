@@ -316,25 +316,25 @@ const fetchApps = async () => {
 
         {/* 1. App Modal */}
         {showAppModal && (
-          <div className="fixed z-10 inset-0 overflow-y-auto bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+          <div className="modal-overlay">
+            <div className="modal-container max-w-md">
               <h3 className="text-lg font-bold mb-4">{isEditingApp ? '修改應用程式' : '新增應用程式'}</h3>
               <form onSubmit={handleAppSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">App ID (Package Name)</label>
-                  <input required disabled={isEditingApp} type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100" value={appFormData.app_id} onChange={e => setAppFormData({...appFormData, app_id: e.target.value})} placeholder="com.company.app"/>
+                  <input required disabled={isEditingApp} type="text" className="form-input" value={appFormData.app_id} onChange={e => setAppFormData({...appFormData, app_id: e.target.value})} placeholder="com.company.app"/>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">應用程式名稱</label>
-                  <input required type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={appFormData.name} onChange={e => setAppFormData({...appFormData, name: e.target.value})} />
+                  <input required type="text" className="form-input" value={appFormData.name} onChange={e => setAppFormData({...appFormData, name: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">描述</label>
-                  <textarea className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3" value={appFormData.description} onChange={e => setAppFormData({...appFormData, description: e.target.value})}></textarea>
+                  <textarea className="form-input" rows="3" value={appFormData.description} onChange={e => setAppFormData({...appFormData, description: e.target.value})}></textarea>
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
-                  <button type="button" onClick={() => setShowAppModal(false)} className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-50">取消</button>
-                  <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">{isSubmitting ? '儲存中...' : '儲存'}</button>
+                  <button type="button" onClick={() => setShowAppModal(false)} className="modal-secondary-button">取消</button>
+                  <button type="submit" disabled={isSubmitting} className="modal-primary-button">{isSubmitting ? '儲存中...' : '儲存'}</button>
                 </div>
               </form>
             </div>
@@ -343,21 +343,21 @@ const fetchApps = async () => {
 
         {/* 2. Branch Modal */}
         {showBranchModal && (
-          <div className="fixed z-10 inset-0 overflow-y-auto bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+          <div className="modal-overlay">
+            <div className="modal-container max-w-md">
               <h3 className="text-lg font-bold mb-4">新增頻道 (Branch)</h3>
               <form onSubmit={handleBranchSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">頻道名稱</label>
-                  <input required type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={branchFormData.branch_name} onChange={e => setBranchFormData({...branchFormData, branch_name: e.target.value})} placeholder="例如: stable, beta, dev"/>
+                  <input required type="text" className="form-input" value={branchFormData.branch_name} onChange={e => setBranchFormData({...branchFormData, branch_name: e.target.value})} placeholder="例如: stable, beta, dev"/>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">描述</label>
-                  <input type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={branchFormData.description} onChange={e => setBranchFormData({...branchFormData, description: e.target.value})} />
+                  <input type="text" className="form-input" value={branchFormData.description} onChange={e => setBranchFormData({...branchFormData, description: e.target.value})} />
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
-                  <button type="button" onClick={() => setShowBranchModal(false)} className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-50">取消</button>
-                  <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">{isSubmitting ? '建立中...' : '建立'}</button>
+                  <button type="button" onClick={() => setShowBranchModal(false)} className="modal-secondary-button">取消</button>
+                  <button type="submit" disabled={isSubmitting} className="modal-primary-button">{isSubmitting ? '建立中...' : '建立'}</button>
                 </div>
               </form>
             </div>
@@ -366,13 +366,13 @@ const fetchApps = async () => {
 
         {/* 3. Version (Upload APK) Modal */}
         {showVersionModal && (
-          <div className="fixed z-10 inset-0 overflow-y-auto bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg p-6 max-w-lg w-full shadow-xl max-h-[90vh] overflow-y-auto">
+          <div className="modal-overlay">
+            <div className="modal-container max-w-lg" style={{maxHeight: '90vh', overflowY: 'auto'}}>
               <h3 className="text-lg font-bold mb-4">上傳新版本 APK</h3>
               <form onSubmit={handleVersionSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">選擇發布頻道</label>
-                  <select required className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={versionFormData.branch_id} onChange={e => setVersionFormData({...versionFormData, branch_id: e.target.value})}>
+                  <select required className="form-select" value={versionFormData.branch_id} onChange={e => setVersionFormData({...versionFormData, branch_id: e.target.value})}>
                     <option value="">請選擇...</option>
                     {rawBranches.map(b => (
                       <option key={b.id} value={b.id}>{b.branch_name}</option>
@@ -382,20 +382,20 @@ const fetchApps = async () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">版本代碼 (Version Code)</label>
-                    <input required type="number" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={versionFormData.version_code} onChange={e => setVersionFormData({...versionFormData, version_code: e.target.value})} placeholder="例如: 105"/>
+                    <input required type="number" className="form-input" value={versionFormData.version_code} onChange={e => setVersionFormData({...versionFormData, version_code: e.target.value})} placeholder="例如: 105"/>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">版本名稱 (Version Name)</label>
-                    <input required type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={versionFormData.version_name} onChange={e => setVersionFormData({...versionFormData, version_name: e.target.value})} placeholder="例如: 1.0.5"/>
+                    <input required type="text" className="form-input" value={versionFormData.version_name} onChange={e => setVersionFormData({...versionFormData, version_name: e.target.value})} placeholder="例如: 1.0.5"/>
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">APK 檔案</label>
-                  <input required type="file" accept=".apk" className="mt-1 block w-full border border-gray-300 rounded-md p-2" onChange={e => setVersionFormData({...versionFormData, file: e.target.files[0]})} />
+                  <input required type="file" accept=".apk" className="form-input" onChange={e => setVersionFormData({...versionFormData, file: e.target.files[0]})} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">最低支援版本 (Code)</label>
-                  <input required type="number" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={versionFormData.min_supported_version} onChange={e => setVersionFormData({...versionFormData, min_supported_version: e.target.value})}/>
+                  <input required type="number" className="form-input" value={versionFormData.min_supported_version} onChange={e => setVersionFormData({...versionFormData, min_supported_version: e.target.value})}/>
                 </div>
                 <div className="flex items-center mt-4">
                   <input type="checkbox" id="force_update" className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked={versionFormData.force_update} onChange={e => setVersionFormData({...versionFormData, force_update: e.target.checked})}/>
@@ -403,12 +403,12 @@ const fetchApps = async () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">更新說明 (Release Notes)</label>
-                  <textarea className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm" rows="4" value={versionFormData.release_notes} onChange={e => setVersionFormData({...versionFormData, release_notes: e.target.value})} placeholder="- 修正了...&#10;- 新增了..."></textarea>
+                  <textarea className="form-input font-mono text-sm" rows="4" value={versionFormData.release_notes} onChange={e => setVersionFormData({...versionFormData, release_notes: e.target.value})} placeholder="- 修正了...&#10;- 新增了..."></textarea>
                 </div>
                 
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                  <button type="button" onClick={() => setShowVersionModal(false)} className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-50">取消</button>
-                  <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center">
+                  <button type="button" onClick={() => setShowVersionModal(false)} className="modal-secondary-button">取消</button>
+                  <button type="submit" disabled={isSubmitting} className="modal-primary-button flex items-center">
                     {isSubmitting ? '上傳中請稍候...' : <><UploadCloud className="w-4 h-4 mr-2"/> 確認上傳</>}
                   </button>
                 </div>
@@ -467,25 +467,25 @@ const fetchApps = async () => {
 
       {/* 渲染新增 App 的 Modal (在首頁也會用到) */}
       {showAppModal && !selectedApp && (
-          <div className="fixed z-10 inset-0 overflow-y-auto bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+          <div className="modal-overlay">
+            <div className="modal-container max-w-md">
               <h3 className="text-lg font-bold mb-4">新增應用程式</h3>
               <form onSubmit={handleAppSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">App ID (Package Name)</label>
-                  <input required type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={appFormData.app_id} onChange={e => setAppFormData({...appFormData, app_id: e.target.value})} placeholder="例如: com.company.app"/>
+                  <input required type="text" className="form-input" value={appFormData.app_id} onChange={e => setAppFormData({...appFormData, app_id: e.target.value})} placeholder="例如: com.company.app"/>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">應用程式名稱</label>
-                  <input required type="text" className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" value={appFormData.name} onChange={e => setAppFormData({...appFormData, name: e.target.value})} placeholder="例如: 企業內部打卡系統" />
+                  <input required type="text" className="form-input" value={appFormData.name} onChange={e => setAppFormData({...appFormData, name: e.target.value})} placeholder="例如: 企業內部打卡系統" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">描述</label>
-                  <textarea className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3" value={appFormData.description} onChange={e => setAppFormData({...appFormData, description: e.target.value})} placeholder="簡單描述此 App 的用途..."></textarea>
+                  <textarea className="form-input" rows="3" value={appFormData.description} onChange={e => setAppFormData({...appFormData, description: e.target.value})} placeholder="簡單描述此 App 的用途..."></textarea>
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
-                  <button type="button" onClick={() => setShowAppModal(false)} className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-50">取消</button>
-                  <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">{isSubmitting ? '儲存中...' : '儲存'}</button>
+                  <button type="button" onClick={() => setShowAppModal(false)} className="modal-secondary-button">取消</button>
+                  <button type="submit" disabled={isSubmitting} className="modal-primary-button">{isSubmitting ? '儲存中...' : '儲存'}</button>
                 </div>
               </form>
             </div>
