@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Shield, Mail, Clock, Unlock, Lock, ShieldAlert, ChevronDown, Settings } from 'lucide-react';
 import api from '../../services/api';
+import { formatDateTime } from '../../utils/date';
 
 const UserManagement = () => {
   const currentUserId = localStorage.getItem('userId');
@@ -82,7 +83,7 @@ const UserManagement = () => {
       return;
     }
 
-    if (!newUser.is_superuser && (!newUser.app_id || newUser.app_id.trim().length === 0)) {
+    if (!newUser.is_superuser && (!newUser.app_id || String(newUser.app_id).trim().length === 0)) {
       alert('請至少選擇一個所屬 App 專案！');
       return;
     }
@@ -201,18 +202,6 @@ const UserManagement = () => {
       console.error('權限變更失敗:', err);
       alert(err.response?.data?.detail || '操作失敗，請檢查權限。');
     }
-  };
-
-  const formatDateTime = (dateString) => {
-    if (!dateString) return '從未登入';
-
-    let formattedString = dateString;
-
-    if (typeof dateString === 'string' && !dateString.endsWith('Z')) {
-      formattedString = dateString + 'Z';
-    }
-
-    return new Date(formattedString).toLocaleString('zh-HK');
   };
 
   const handleEditAppPermissions = (user) => {
@@ -644,7 +633,7 @@ const UserManagement = () => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   <div className="flex items-center">
                     <Clock className="h-4 w-4 mr-1 text-gray-400" />
-                    {formatDateTime(user.last_login)}
+                    {formatDateTime(user.last_login) ?? '從未登入'}
                   </div>
                 </td>
                 {/* 操作欄位  */}

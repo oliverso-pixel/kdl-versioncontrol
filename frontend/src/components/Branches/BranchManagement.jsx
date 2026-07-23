@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GitBranch, Plus, Edit2, Trash2 } from 'lucide-react';
 import api from '../../services/api';
+import { formatDateTime } from '../../utils/date';
 
 const BranchManagement = () => {
   const [branches, setBranches] = useState([]);
@@ -110,7 +111,7 @@ const BranchManagement = () => {
                             <p className="text-sm text-gray-500">{branch.description}</p>
                           )}
                           <p className="text-xs text-gray-400 mt-1">
-                            建立時間：{new Date(branch.created_at).toLocaleString()}
+                            建立時間：{formatDateTime(branch.created_at) ?? '未知時間'}
                           </p>
                         </div>
                       </div>

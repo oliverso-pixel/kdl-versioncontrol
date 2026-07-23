@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Key, Shield, Database, Bell, Save, Plus, Trash2 } from 'lucide-react';
 import api from '../../services/api';
+import { formatDateTime } from '../../utils/date';
 
 const SystemSettings = () => {
   const [activeTab, setActiveTab] = useState('general');
@@ -244,10 +245,12 @@ const ApiKeyManagement = () => {
             <div>
               <p className="font-medium text-gray-900">{key.name}</p>
               <p className="text-sm text-gray-500">
-                建立時間：{new Date(key.created_at).toLocaleString()}
+                <p className="text-sm text-gray-500">
+                  建立時間：{formatDateTime(key.created_at) ?? '未知時間'}
+                </p>
               </p>
               <p className="text-sm text-gray-500">
-                最後使用：{key.last_used ? new Date(key.last_used).toLocaleString() : '從未使用'}
+                最後使用：{formatDateTime(key.last_used) ?? '從未使用'}
               </p>
             </div>
             <div className="flex items-center space-x-2">
@@ -281,7 +284,7 @@ const ApiKeyManagement = () => {
               <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
                 新增 API 金鑰
               </h3>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   金鑰名稱
@@ -295,7 +298,7 @@ const ApiKeyManagement = () => {
                 />
               </div>
             </div>
-            
+
             <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
               <button
                 onClick={handleCreateKey}
@@ -353,12 +356,12 @@ const DatabaseManagement = () => {
     if (window.confirm('確定要清理過期資料嗎？此操作不可恢復！')) {
       try {
         const result = await api.cleanupDatabase();
-      const totalDeleted = (result.deleted_logs || 0) + 
-                          (result.deleted_devices || 0) + 
-                          (result.deleted_apk_files || 0);
-      
-      // 顯示詳細的清理結果
-      alert(`清理完成：
+        const totalDeleted = (result.deleted_logs || 0) +
+          (result.deleted_devices || 0) +
+          (result.deleted_apk_files || 0);
+
+        // 顯示詳細的清理結果
+        alert(`清理完成：
       - 更新日誌：${result.deleted_logs || 0} 筆
       - 停用設備：${result.deleted_devices || 0} 筆
       - APK檔案：${result.deleted_apk_files || 0} 個
