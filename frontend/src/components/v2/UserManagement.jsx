@@ -10,6 +10,7 @@ const UserManagement = () => {
   const hasManagePermission = isSuperuser || permissionLevel >= 3;
   const isCurrentUser = (id) => String(currentUserId) === String(id);
   const [users, setUsers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -81,7 +82,7 @@ const UserManagement = () => {
       return;
     }
 
-    if (!newUser.app_id || newUser.app_id.length === 0) {
+    if (!newUser.is_superuser && (!newUser.app_id || newUser.app_id.trim().length === 0)) {
       alert('請至少選擇一個所屬 App 專案！');
       return;
     }
@@ -256,6 +257,16 @@ const UserManagement = () => {
       alert(`更新失敗：${errorDetail}`);
     }
   };
+
+  const filteredUsers = (users || []).filter((user) => {
+    const q = (searchTerm || '').trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (user.username || '').toLowerCase().includes(q) ||
+      (user.email || '').toLowerCase().includes(q) ||
+      String(user.department_code || '').toLowerCase().includes(q)
+    );
+  });
 
   // #region 新增使用者 Modal
   const createUserModal = showCreateModal ? (
@@ -530,6 +541,20 @@ const UserManagement = () => {
         )}
       </div>
 
+      {/* 搜尋欄 */}
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="搜尋使用者、Email、部門代碼..."
+          className="form-input w-full max-w-md"
+        />
+        {searchTerm && (
+          <button onClick={() => setSearchTerm('')} className="ml-2 px-3 py-2 bg-gray-100 rounded border border-gray-200 text-sm">清除</button>
+        )}
+      </div>
+
       <div className="bg-white shadow overflow-hidden sm:rounded-lg overflow-x-auto max-w-full">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -552,7 +577,7 @@ const UserManagement = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user) => (
+            {filteredUsers.map((user) => (
               <tr key={user.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
