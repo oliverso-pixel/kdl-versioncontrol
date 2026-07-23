@@ -205,7 +205,14 @@ const UserManagement = () => {
 
   const formatDateTime = (dateString) => {
     if (!dateString) return '從未登入';
-    return new Date(dateString).toLocaleString('zh-TW');
+
+    let formattedString = dateString;
+
+    if (typeof dateString === 'string' && !dateString.endsWith('Z')) {
+      formattedString = dateString + 'Z';
+    }
+
+    return new Date(formattedString).toLocaleString('zh-HK');
   };
 
   const handleEditAppPermissions = (user) => {
