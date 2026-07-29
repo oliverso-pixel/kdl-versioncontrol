@@ -314,7 +314,7 @@ const DeviceMonitoringV2 = () => {
                 <h3 className="text-xl font-bold flex items-center gap-2"><Cpu className="w-5 h-5" /> 設備控制中心</h3>
                 <p className="text-indigo-200 text-sm">{selectedDevice.device_model} ({selectedDevice.android_id})</p>
               </div>
-              <button onClick={() => setSelectedDevice(null)} className="text-white hover:text-gray-200 text-2xl font-bold">×</button>
+              <button onClick={() => { setSelectedDevice(null); setSelectedDate(null); }} className="text-white hover:text-gray-200 text-2xl font-bold">×</button>
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
@@ -426,25 +426,23 @@ const DeviceMonitoringV2 = () => {
                   />
                   <p className="mt-2 text-xs text-slate-500">輸入日期後可檢視該日的歷史軌跡。</p>
                 </div>
-                {loadingDetails ? (
-                  <p className="text-gray-500 text-sm">讀取中...</p>
-                ) : (
-                  <div className="mb-6 map-container-styled h-[420px] overflow-hidden">
-                    {selectedDate ? (
-                      filteredHistory.length > 0 ? (
-                        <LocationMap locationHistory={filteredHistory} selectedDate={selectedDate} />
-                      ) : (
-                        <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
-                          <p className="text-sm font-medium">該日期尚無 GPS 軌跡</p>
-                          <p className="mt-2 text-xs">請選擇其他有資料的日期。</p>
-                        </div>
-                      )
+                {selectedDate ? (
+                  <div className="mb-6 map-container-styled h-[600px] overflow-hidden">
+                    {filteredHistory.length > 0 ? (
+                      <LocationMap locationHistory={filteredHistory} selectedDate={selectedDate} />
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
-                        <p className="text-sm font-medium">尚未選擇日期</p>
-                        <p className="mt-2 text-xs">請先從上方日期選擇器選擇要查詢的日期。</p>
+                        <p className="text-sm font-medium">該日期尚無 GPS 軌跡</p>
+                        <p className="mt-2 text-xs">請選擇其他有資料的日期。</p>
                       </div>
                     )}
+                  </div>
+                ) : (
+                  <div className="mb-6 map-container-styled h-[600px] overflow-hidden">
+                    <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
+                      <p className="text-sm font-medium">尚未選擇日期</p>
+                      <p className="mt-2 text-xs">請先從上方日期選擇器選擇要查詢的日期。</p>
+                    </div>
                   </div>
                 )}
               </div>

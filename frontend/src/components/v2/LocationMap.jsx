@@ -67,7 +67,7 @@ export default function LocationMap({ locationHistory = [], selectedDate }) {
   const route = useMemo(() => filteredHistory.map((loc) => [loc.lat, loc.lng]), [filteredHistory]);
 
   return (
-    <MapContainer center={DEFAULT_CENTER} zoom={13} style={{ height: "95%", width: "95%" }}>
+    <MapContainer center={DEFAULT_CENTER} zoom={13} style={{ height: "100%", width: "100%" }} attributionControl={false}>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
       {/* 地圖標題 */}
