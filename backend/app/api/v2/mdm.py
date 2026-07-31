@@ -7,6 +7,7 @@ from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
 from ...core.utils import get_hkt_now
+from ...core.geocoder import reverse_geocode_zh
 from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
@@ -249,11 +250,26 @@ async def device_websocket(
                 if gps_time.tzinfo is not None:
                     gps_time = gps_time.replace(tzinfo=None)
 
+                boot_time_raw = message.get("boot_time")
+                boot_time = (
+                    datetime.fromtimestamp(boot_time_raw / 1000.0)
+                    if isinstance(boot_time_raw, (int, float))
+                    else None
+                )
+
                 route = message.get("route", message.get("Route"))
                 altitude = message.get("altitude", message.get("Altitude"))
-                address = message.get("address", message.get("Address"))
                 satellites = message.get("satellites_used", message.get("Satellites"))
                 conn_status = message.get("connection_status", message.get("Connection_status", "online"))
+                location_source = message.get("location_source")
+
+                # 一律由後端反查地址；Nominatim 失敗/未設定時才退回裝置回報的 address
+                # (此處尚未執行任何 SQL，5 秒反查預算不會佔住 DB 連線)
+                address = None
+                if message.get("lat") and message.get("lng"):
+                    address = await reverse_geocode_zh(message["lat"], message["lng"])
+                if not address:
+                    address = message.get("address", message.get("Address"))
 
                 if not device.gps_time or gps_time > device.gps_time:
                     device.battery_level = message.get("battery")
@@ -264,7 +280,9 @@ async def device_websocket(
                     device.address = address
                     device.satellites = satellites
                     device.gps_time = gps_time
-                
+                    device.boot_time = boot_time
+                    device.location_source = location_source
+
                 device.last_check_time = get_hkt_now()
                 
                 if message.get("lat") and message.get("lng"):

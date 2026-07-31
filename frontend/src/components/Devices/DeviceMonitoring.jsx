@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2 } from 'lucide-react';
+import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation } from 'lucide-react';
 import api from '../../services/api';
+
+// 定位來源 (Android 回報 fused / gps / network / passive)
+const LOCATION_SOURCE_LABELS = {
+  fused: '融合',
+  gps: 'GPS',
+  network: '網路',
+  passive: '被動',
+};
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import L from "leaflet";
@@ -267,12 +275,26 @@ const DeviceMonitoringV2 = () => {
                   {device.last_check_time ? new Date(device.last_check_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }) : '從未連線'}
                 </span>
               </div>
+              <div className="flex flex-col items-center" title="裝置開機時間">
+                <Power className="w-5 h-5 text-purple-500" />
+                <span className="text-xs text-gray-600 mt-1">
+                  {device.boot_time
+                    ? new Date(device.boot_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })
+                    : '-'}
+                </span>
+              </div>
               <div className="flex flex-col items-center" title="電量">
                 <Battery className={`w-5 h-5 ${device.battery_level > 20 ? 'text-green-500' : 'text-red-500'}`} />
                 <span className="text-xs text-gray-600 font-bold mt-1">{device.battery_level ? `${device.battery_level}%` : '-'}</span>
               </div>
+              <div className="flex flex-col items-center" title="定位來源">
+                <Navigation className="w-5 h-5 text-teal-500" />
+                <span className="text-xs text-gray-600 font-bold mt-1">
+                  {LOCATION_SOURCE_LABELS[device.location_source] || device.location_source || '-'}
+                </span>
+              </div>
             </div>
-            
+
             <div className="flex justify-end gap-2 w-1/3">
               <button onClick={() => { setEditFormData({ id: device.id, device_model: device.device_model || '', notes: device.notes || '' }); setShowEditModal(true); }} className="p-2 text-gray-500 hover:text-indigo-600 bg-gray-50 rounded transition" title="修改資訊">
                 <Edit className="w-4 h-4"/>

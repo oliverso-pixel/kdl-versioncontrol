@@ -32,6 +32,8 @@ class Device(Base):
     address = Column(Text, nullable=True)
     satellites = Column(Integer, nullable=True)
     gps_time = Column(DateTime, nullable=True)
+    boot_time = Column(DateTime, nullable=True)          # 裝置開機時間
+    location_source = Column(String(20), nullable=True)  # fused / gps / network / passive
 
     created_at = Column(DateTime, default=get_hkt_now)
     updated_at = Column(DateTime, default=get_hkt_now, onupdate=get_hkt_now)

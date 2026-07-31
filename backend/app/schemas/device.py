@@ -34,6 +34,13 @@ class Device(DeviceBase):
     battery_level: Optional[int] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    route: Optional[str] = None
+    altitude: Optional[float] = None
+    address: Optional[str] = None
+    satellites: Optional[int] = None
+    gps_time: Optional[datetime] = None
+    boot_time: Optional[datetime] = None
+    location_source: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     

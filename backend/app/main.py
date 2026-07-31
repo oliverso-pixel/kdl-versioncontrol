@@ -15,6 +15,8 @@ from .api.v2 import version_check as v2_version_check
 from .api.v2 import mdm as v2_mdm
 from .api.v2 import auth as v2_auth, users as v2_users
 from .core.utils import ensure_directory_exists, setup_logging, get_hkt_now
+from .core.address_backfill import backfill_loop
+import asyncio
 
 # Setup logging
 setup_logging()
@@ -124,14 +126,22 @@ async def root():
         }
     }
 
+_backfill_task = None
+
 @app.on_event("startup")
 async def startup_event():
     logger.info(f"Server starting on {settings.HOST}:{settings.PORT}")
     logger.info(f"APK storage path: {settings.APK_STORAGE_PATH}")
     logger.info(f"Database: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}")
 
+    # 地址回填背景任務 (補 device_location_history 中 address 為 NULL 的紀錄)
+    global _backfill_task
+    _backfill_task = asyncio.create_task(backfill_loop())
+
 @app.on_event("shutdown")
 async def shutdown_event():
+    if _backfill_task:
+        _backfill_task.cancel()
     logger.info("Server shutting down")
 
 if __name__ == "__main__":
