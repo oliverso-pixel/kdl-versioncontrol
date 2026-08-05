@@ -63,45 +63,48 @@ const SystemSettings = () => {
   ];
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold text-gray-900 mb-6">系統設定</h1>
+    <div className="w-full min-h-screen bg-slate-50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-3 mb-6">
+        <h1 className="text-2xl font-semibold text-slate-900">系統設定</h1>
+      </div>
 
-      <div className="bg-white shadow rounded-lg overflow-x-auto">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`
-                    flex items-center py-4 px-1 border-b-2 font-medium text-sm
-                    ${activeTab === tab.id
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }
-                  `}
-                >
-                  <Icon className="h-5 w-5 mr-2" />
-                  {tab.name}
-                </button>
-              );
-            })}
+      <div className="w-full bg-white shadow rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="border-b border-gray-200 bg-slate-50">
+          <nav className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 overflow-x-auto" aria-label="Tabs">
+            <div className="flex flex-wrap gap-2">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center rounded-2xl px-3 py-2 text-sm font-medium transition
+                      ${activeTab === tab.id
+                        ? 'bg-white text-indigo-700 shadow-sm'
+                        : 'text-gray-600 hover:bg-white/80 hover:text-gray-900'
+                      }
+                    `}
+                  >
+                    <Icon className="h-5 w-5 mr-2" />
+                    {tab.name}
+                  </button>
+                );
+              })}
+            </div>
           </nav>
         </div>
 
         <div className="p-6">
           {/* 一般設定 */}
           {activeTab === 'general' && (
-            <div className="space-y-6">
-              <div>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5 shadow-sm">
                 <label className="block text-sm font-medium text-gray-700">
                   系統名稱
                 </label>
                 <input
                   type="text"
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="mt-3 block w-full border-gray-300 rounded-xl bg-white px-4 py-3 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   value={settings.general.system_name}
                   onChange={(e) => setSettings({
                     ...settings,
@@ -110,13 +113,13 @@ const SystemSettings = () => {
                 />
               </div>
 
-              <div>
+              <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5 shadow-sm">
                 <label className="block text-sm font-medium text-gray-700">
                   最大檔案大小 (MB)
                 </label>
                 <input
                   type="number"
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="mt-3 block w-full border-gray-300 rounded-xl bg-white px-4 py-3 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   value={settings.general.max_file_size}
                   onChange={(e) => setSettings({
                     ...settings,
@@ -125,13 +128,13 @@ const SystemSettings = () => {
                 />
               </div>
 
-              <div>
+              <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5 shadow-sm">
                 <label className="block text-sm font-medium text-gray-700">
                   日誌保留天數
                 </label>
                 <input
                   type="number"
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="mt-3 block w-full border-gray-300 rounded-xl bg-white px-4 py-3 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   value={settings.general.retention_days}
                   onChange={(e) => setSettings({
                     ...settings,
@@ -140,19 +143,21 @@ const SystemSettings = () => {
                 />
               </div>
 
-              <div className="flex items-center">
+              <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5 shadow-sm flex items-center gap-3">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                  className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                   checked={settings.general.enable_auto_cleanup}
                   onChange={(e) => setSettings({
                     ...settings,
                     general: { ...settings.general, enable_auto_cleanup: e.target.checked }
                   })}
                 />
-                <label className="ml-2 block text-sm text-gray-900">
-                  啟用自動清理
-                </label>
+                <div>
+                  <label className="text-sm font-medium text-gray-900">
+                    啟用自動清理
+                  </label>
+                </div>
               </div>
             </div>
           )}
@@ -241,19 +246,13 @@ const ApiKeyManagement = () => {
 
       <div className="space-y-4">
         {apiKeys.map((key) => (
-          <div key={key.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
+          <div key={key.id} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm sm:flex sm:items-center sm:justify-between">
+            <div className="space-y-1">
               <p className="font-medium text-gray-900">{key.name}</p>
-              <p className="text-sm text-gray-500">
-                <p className="text-sm text-gray-500">
-                  建立時間：{formatDateTime(key.created_at) ?? '未知時間'}
-                </p>
-              </p>
-              <p className="text-sm text-gray-500">
-                最後使用：{formatDateTime(key.last_used) ?? '從未使用'}
-              </p>
+              <p className="text-sm text-gray-500">建立時間：{formatDateTime(key.created_at) ?? '未知時間'}</p>
+              <p className="text-sm text-gray-500">最後使用：{formatDateTime(key.last_used) ?? '從未使用'}</p>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="mt-4 flex items-center space-x-2 sm:mt-0">
               {key.is_active ? (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                   啟用
@@ -394,13 +393,13 @@ const DatabaseManagement = () => {
 
       <div>
         <h4 className="text-base font-medium text-gray-900 mb-2">資料表統計</h4>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <table className="min-w-full">
+        <div className="bg-gray-50 rounded-2xl p-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
             <thead>
               <tr>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase">資料表</th>
-                <th className="text-right text-xs font-medium text-gray-500 uppercase">記錄數</th>
-                <th className="text-right text-xs font-medium text-gray-500 uppercase">大小</th>
+                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wide">資料表</th>
+                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wide">記錄數</th>
+                <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wide">大小</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">

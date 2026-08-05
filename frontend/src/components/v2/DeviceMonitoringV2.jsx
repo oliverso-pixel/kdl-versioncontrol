@@ -424,7 +424,11 @@ const DeviceMonitoringV2 = () => {
                       }
                     }}
                   />
-                  <p className="mt-2 text-xs text-slate-500">輸入日期後可檢視該日的歷史軌跡。</p>
+                  {!selectedDate ? (
+                    <p className="mt-2 text-xs text-slate-500">輸入日期後可檢視該日的歷史軌跡。</p>
+                  ) : (
+                    null
+                  )}
                 </div>
                 {selectedDate ? (
                   <div className="mb-6 map-container-styled h-[600px] overflow-hidden">
@@ -438,12 +442,7 @@ const DeviceMonitoringV2 = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="mb-6 map-container-styled h-[600px] overflow-hidden">
-                    <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-500">
-                      <p className="text-sm font-medium">尚未選擇日期</p>
-                      <p className="mt-2 text-xs">請先從上方日期選擇器選擇要查詢的日期。</p>
-                    </div>
-                  </div>
+                  null
                 )}
               </div>
               <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
