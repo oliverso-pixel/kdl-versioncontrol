@@ -1,3 +1,3 @@
-from . import admin, statistics, database_mgmt, settings
+from . import admin, auth, websocket, statistics, database_mgmt, settings
 
-__all__ = ["admin", "statistics", "database_mgmt", "settings"]
+__all__ = ["admin", "auth", "websocket", "statistics", "database_mgmt", "settings"]

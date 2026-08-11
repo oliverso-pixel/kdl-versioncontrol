@@ -356,12 +356,12 @@ async def upload_apk(
     logger.info(f"Uploaded version {version_name} for {app.app_id}/{branch.branch_name}")
     
     # Notify connected clients via WebSocket
-    # from .websocket import notify_update_available
-    # await notify_update_available(app.app_id, branch.branch_name, {
-    #     "version_code": version_code,
-    #     "version_name": version_name,
-    #     "force_update": force_update
-    # })
+    from .websocket import notify_update_available
+    await notify_update_available(app.app_id, branch.branch_name, {
+        "version_code": version_code,
+        "version_name": version_name,
+        "force_update": force_update
+    })
     
     return {
         "message": "APK uploaded successfully",

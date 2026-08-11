@@ -1,4 +1,3 @@
-// frontend/src/components/Devices/DeviceMonitoring.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation } from 'lucide-react';
 import api from '../../services/api';
@@ -14,7 +13,6 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import L from "leaflet";
 import LocationMap from "./LocationMap";
-import RemoteScreen from './RemoteScreen';
 
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
@@ -47,8 +45,6 @@ const DeviceMonitoringV2 = () => {
   // 修改設備 Modal 狀態
   const [showEditModal, setShowEditModal] = useState(false);
   const [editFormData, setEditFormData] = useState({ id: null, device_model: '', notes: '' });
-
-  const [showScreenControl, setShowScreenControl] = useState(false);
 
   useEffect(() => {
     fetchDevices();
@@ -145,12 +141,6 @@ const DeviceMonitoringV2 = () => {
     } catch (err) {} finally {
       setLoadingDetails(false);
     }
-  };
-
-  // 🔥 新增：關閉控制中心 Modal 時，一併確保螢幕控制視窗關閉，避免殘留連線
-  const closeDeviceDetails = () => {
-    setShowScreenControl(false);
-    setSelectedDevice(null);
   };
 
   const handleRemoteCommand = async (action, extraData = {}) => {
@@ -356,7 +346,7 @@ const DeviceMonitoringV2 = () => {
                 <h3 className="text-xl font-bold flex items-center"><Cpu className="mr-2"/> 設備控制中心</h3>
                 <p className="text-indigo-200 text-sm">{selectedDevice.device_model} ({selectedDevice.android_id})</p>
               </div>
-              <button onClick={closeDeviceDetails} className="text-white hover:text-gray-200 text-2xl font-bold">×</button>
+              <button onClick={() => setSelectedDevice(null)} className="text-white hover:text-gray-200 text-2xl font-bold">×</button>
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50">
@@ -415,6 +405,23 @@ const DeviceMonitoringV2 = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+                  <h4 className="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center"><History className="w-5 h-5 mr-2 text-indigo-500"/> 歷史座標軌跡</h4>
+                  {loadingDetails ? <p className="text-gray-500 text-sm">讀取中...</p> : (
+                    <div className="max-h-60 overflow-y-auto">
+                      {locationHistory.length > 0 ? locationHistory.map((loc, idx) => (
+                        <div key={idx} className="flex justify-between items-center py-2 border-b last:border-0 text-sm">
+                          <div>
+                            <span className="text-gray-800 font-medium">{loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}</span>
+                            <span className="text-gray-400 ml-2 text-xs">({loc.battery}%)</span>
+                          </div>
+                          <span className="text-gray-500">{new Date(loc.time).toLocaleTimeString()}</span>
+                        </div>
+                      )) : <p className="text-gray-400 text-sm">尚無歷史軌跡紀錄</p>}
+                    </div>
+                  )}
+                </div> */}
 
                 <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
                   <h4 className="font-bold text-gray-800 mb-4 border-b pb-2 flex items-center">
@@ -500,42 +507,6 @@ const DeviceMonitoringV2 = () => {
 
               </div>
 
-              {/* ===== 螢幕遠端控制區塊 ===== */}
-              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-5 rounded-lg shadow-sm border-2 border-purple-200">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-bold text-gray-800 flex items-center">
-                    <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    螢幕遠端控制
-                  </h4>
-                  {!isOnline && (
-                    <span className="text-xs text-red-500 font-bold bg-red-50 px-2 py-1 rounded">
-                      設備離線中
-                    </span>
-                  )}
-                </div>
-                
-                <p className="text-sm text-gray-600 mb-4">
-                  即時查看並控制設備螢幕，支援觸控、按鍵輸入、文字輸入等操作
-                </p>
-                
-                <button 
-                  disabled={!isOnline}
-                  onClick={() => setShowScreenControl(true)}
-                  className={`w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-3 rounded-lg font-semibold flex items-center justify-center transition-all ${
-                    isOnline 
-                      ? 'hover:from-purple-700 hover:to-indigo-700 hover:shadow-lg' 
-                      : 'opacity-50 cursor-not-allowed'
-                  }`}
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                  {isOnline ? '啟動螢幕控制' : '設備離線中'}
-                </button>
-              </div>
-
               <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">已安裝的企業應用程式</h4>
                 {loadingDetails ? <p className="text-gray-500 text-sm">同步中...</p> : (
@@ -614,17 +585,7 @@ const DeviceMonitoringV2 = () => {
           </div>
         </div>
       )}
-
-      {/* ===================== 螢幕遠端控制子視窗 ===================== */}
-      {/* 🔥 修正：移出 installedApps.map() 迴圈，整個頁面只會 mount 一個 RemoteScreen 實例 */}
-      {selectedDevice && showScreenControl && (
-        <RemoteScreen 
-          device={selectedDevice}
-          onClose={() => setShowScreenControl(false)}
-        />
-      )}
     </div>
   );
 };
-
 export default DeviceMonitoringV2;

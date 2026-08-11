@@ -36,13 +36,14 @@ const StoreManagement = () => {
   });
 
   // DO QR Code 狀態控管
-  const [showQrConfigModal, setShowQrConfigModal] = useState(false);
-  const [showQrResultModal, setShowQrResultModal] = useState(false);
+  const [showQrConfigModal, setShowQrConfigModal] = useState(false); // 第一步：輸入資訊
+  const [showQrResultModal, setShowQrResultModal] = useState(false); // 第二步：顯示條碼
   const [qrVersionData, setQrVersionData] = useState(null);
   const [wifiSsid, setWifiSsid] = useState('KDL-IT');
   const [wifiPassword, setWifiPassword] = useState('k#c1719:3B');
   // const [adminComponent, setAdminComponent] = useState('com.kowloondairy.mdmapp/.admin.MdmDeviceAdminReceiver');
 
+  // 💡 新增：用來監聽 Modal 狀態與資料是否有被正確更新
   useEffect(() => {
     console.log("🔍 [狀態追蹤] Config Modal 開關狀態:", showQrConfigModal);
     console.log("🔍 [狀態追蹤] Result Modal 開關狀態:", showQrResultModal);
@@ -55,7 +56,7 @@ const StoreManagement = () => {
 
   const fetchApps = async () => {
     try {
-      const res = await api.getStoreApps();
+      const res = await api.getStoreApps(); // V2 商城列表
       setApps(res.data);
     } catch (err) {
       console.error("Failed to fetch store apps:", err);
@@ -66,13 +67,16 @@ const StoreManagement = () => {
     try {
       setSelectedApp(appId);
       
+      // 1. 取得 V2 的精美層級資料
       const res = await api.getStoreAppDetails(appId); 
       setAppDetails(res.data);
 
+      // 2. 取得 V1 的原始列表，以獲取資料庫的數字 ID (供更新與刪除使用)
       const v1Apps = await api.getApplications();
       const targetApp = v1Apps.find(a => a.app_id === appId);
       setRawApp(targetApp);
-      
+
+      // 3. 取得該 App 下所有的分支原始資料 (供上傳 APK 選擇分支使用)
       if (targetApp) {
         const v1Branches = await api.getBranches(targetApp.id);
         setRawBranches(v1Branches);
@@ -105,11 +109,11 @@ const StoreManagement = () => {
       };
 
       if (isEditingApp) {
-        await api.updateApplication(rawApp.id, payload);
+        await api.updateApplication(rawApp.id, appFormData);
         alert('應用程式已成功更新');
         await openAppDetails(rawApp.app_id);
       } else {
-        await api.createApplication(payload);
+        await api.createApplication(appFormData);
         alert('應用程式已成功建立');
       }
       setShowAppModal(false);
@@ -588,7 +592,7 @@ const StoreManagement = () => {
             setIsEditingApp(false);
             setAppFormData({ app_id: '', name: '', description: '', default_config: '{}' });
             setShowAppModal(true);
-          }}
+          }} 
           className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg flex items-center shadow-md hover:bg-indigo-700 transition font-medium"
         >
           <Plus className="w-5 h-5 mr-2"/> 新增應用程式

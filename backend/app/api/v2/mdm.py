@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
 from pydantic import BaseModel
@@ -83,6 +82,51 @@ async def register_device(
     db.commit()
     return {"status": "success", "android_id": payload.android_id, "api_key": new_key}
 
+# @router.post("/devices/{android_id}/sync-apps")
+# async def sync_device_apps(
+#     android_id: str,
+#     api_key: str,
+#     apps: List[dict], # [{"app_id": "com.app.a", "version_code": 100}]
+#     db: Session = Depends(get_db)
+# ):
+
+#     """確保裝置已安裝 App 清單為最新狀態"""
+
+#     logger.info(f"📥 [MDM API sync-apps] 來自設備: {android_id} | 接收到的 App 清單 JSON: {json.dumps(apps, ensure_ascii=False)}")
+
+#     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
+#     if not device:
+#         raise HTTPException(status_code=401, detail="Unauthorized")
+    
+#     db.execute(text("DELETE FROM device_installed_apps WHERE device_id = :id"), {"id": device.id})
+    
+#     for app_data in apps:
+#         app_model = db.query(Application).filter(Application.app_id == app_data['app_id']).first()
+#         if app_model:
+#             db.execute(
+#                 text("""INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
+#                    VALUES (:d_id, :a_id, :v_code)"""),
+#                 {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
+#             )
+            
+#             existing_config = db.execute(
+#                 text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+#                 {"d_id": device.id, "a_id": app_model.app_id}
+#             ).first()
+            
+#             if not existing_config and app_model.default_config:
+#                 db.execute(
+#                     text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
+#                        VALUES (:d_id, :a_id, :conf, NOW())"""),
+#                     {
+#                         "d_id": device.id, 
+#                         "a_id": app_model.app_id, 
+#                         "conf": json.dumps(app_model.default_config)
+#                     }
+#                 )
+#     db.commit()
+#     return {"status": "synced"}
+
 @router.post("/devices/{android_id}/report-data")
 async def report_app_data(
     android_id: str,
@@ -103,36 +147,6 @@ async def report_app_data(
     db.commit()
     return {"status": "recorded"}
 
-@router.post("/admin/devices/{android_id}/screen/control")
-async def screen_control(
-    android_id: str,
-    action: str,  # "start_capture" | "stop_capture" | "tap" | "swipe" | "key"
-    params: dict = {},
-    db: Session = Depends(get_db),
-    token_payload: dict = Depends(verify_token)
-):
-    """遠端螢幕控制"""
-    
-    device = db.query(Device).filter(Device.android_id == android_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    task_id = f"screen_{int(get_hkt_now().timestamp()*1000)}"
-    
-    command = {
-        "task_id": task_id,
-        "target_app": "com.kowloondairy.mdmapp",
-        "action": f"DC_{action}",
-        **params
-    }
-    
-    success = await ws_manager.send_command(android_id, command)
-    
-    if not success:
-        raise HTTPException(status_code=400, detail="Device offline")
-    
-    return {"status": "command_sent", "task_id": task_id}
-
 # ----------------- WebSocket Manager ----------------- #
 
 class DeviceWSManager:
@@ -141,42 +155,29 @@ class DeviceWSManager:
 
     async def connect(self, websocket: WebSocket, android_id: str, db: Session):
         await websocket.accept()
-        old = self.active_devices.get(android_id)
-        if old is not None and old is not websocket:
-            try:
-                await old.close(code=1000)
-            except Exception:
-                pass
         self.active_devices[android_id] = websocket
         db.execute(text("UPDATE devices SET is_online = 1, last_check_time = NOW() WHERE android_id = :aid"), {"aid": android_id})
         db.commit()
 
-    def disconnect(self, android_id: str, db: Session = None, websocket: WebSocket = None):
-        current = self.active_devices.get(android_id)
-        if current is None:
-            return
-        if websocket is not None and current is not websocket:
-            return
-        del self.active_devices[android_id]
-        if db is not None:
+        logger.info(f"🟢 [MDM WS 連線建立] 設備 {android_id} 已連線。現時連接中總數: {len(self.active_devices)} | 列表: {list(self.active_devices.keys())}")
+
+    def disconnect(self, android_id: str, db: Session):
+        if android_id in self.active_devices:
+            del self.active_devices[android_id]
             db.execute(text("UPDATE devices SET is_online = 0 WHERE android_id = :aid"), {"aid": android_id})
             db.commit()
 
-    async def send_command(self, android_id: str, command: dict) -> bool:
-        """發送指令給指定設備，成功回傳 True，設備離線或發送失敗回傳 False"""
-        websocket = self.active_devices.get(android_id)
-        if websocket is None:
-            logger.warning(f"⚠️ [WS 指令發送失敗] 設備不在線: {android_id}")
-            return False
-        try:
-            await websocket.send_json(command)
-            logger.info(f"📤 [WS 指令已發送] 設備: {android_id} | 指令: {command.get('action')}")
+            logger.info(f"🔴 [MDM WS 連線中斷] 設備 {android_id} 已斷線。現時連接中總數: {len(self.active_devices)} | 列表: {list(self.active_devices.keys())}")
+
+    async def send_command(self, android_id: str, command: dict):
+        if android_id in self.active_devices:
+            
+            logger.info(f"📤 [MDM WS 發送指令] 給設備: {android_id} | 內容: {json.dumps(command, ensure_ascii=False)}")
+
+            await self.active_devices[android_id].send_json(command)
             return True
-        except Exception as e:
-            logger.error(f"❌ [WS 指令發送異常] 設備: {android_id} | 錯誤: {e}")
-            # 連線已失效，清掉它
-            self.active_devices.pop(android_id, None)
-            return False
+
+        return False
 
 ws_manager = DeviceWSManager()
 
@@ -573,23 +574,6 @@ async def device_websocket(
                     except Exception as e:
                         db.rollback()
                         logger.error(f"❌ [Config 同步錯誤] 設備 {android_id} 更新設定失敗: {e}")
-
-            elif message.get("type") == "screen_frame":
-                # MDM App 回傳的螢幕畫面
-                task_id = message.get("task_id")
-                image_base64 = message.get("image_base64")
-                
-                if image_base64:
-                    # 轉發給前端（透過 Screen Stream WebSocket）
-                    from .screen_control import screen_stream_manager
-                    await screen_stream_manager.send_frame(android_id, {
-                        "type": "screen_frame",
-                        "task_id": task_id,
-                        "image_base64": image_base64,
-                        "timestamp": get_hkt_now().timestamp() * 1000
-                    })
-                    
-                    logger.info(f"🖼️ [MDM WS] 轉發螢幕畫面 | 設備: {android_id} | 大小: {len(image_base64)} bytes")
                 
             elif message.get("type") == "heartbeat":
                 await websocket.send_json({"type": "heartbeat_ack"})
@@ -597,7 +581,7 @@ async def device_websocket(
                 db.commit()
 
     except WebSocketDisconnect:
-        ws_manager.disconnect(android_id, db, websocket)
+        ws_manager.disconnect(android_id, db)
 
 @router.post("/admin/devices/{android_id}/command")
 async def send_admin_command(
@@ -612,11 +596,7 @@ async def send_admin_command(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    try:
-        success = await ws_manager.send_command(android_id, command)
-    except Exception as e:
-        logger.error(f"❌ [指令發送異常] 設備 {android_id}: {e}")
-        success = False
+    success = await ws_manager.send_command(android_id, command)
     
     # 如果前端沒有傳 task_id，我們自動產生一個確保後續追蹤
     task_id = command.get("task_id", f"task_{int(get_hkt_now().timestamp()*1000)}")
@@ -645,10 +625,7 @@ async def send_admin_command(
         logger.error(f"寫入 Command History 失敗: {e}")
 
     if not success:
-        return JSONResponse(
-            status_code=400,
-            content={"status": "device_offline", "task_id": task_id, "message": "設備離線或連線已中斷"}
-        )
+        raise HTTPException(status_code=400, detail="Device is offline")
         
     return {"status": "command_sent", "task_id": task_id}
 

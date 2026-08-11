@@ -9,10 +9,9 @@ import logging
 from datetime import datetime
 from .config import settings
 from .database import engine, Base
-from .api import admin, statistics, database_mgmt, settings as settings_api
+from .api import auth, admin, websocket, statistics, database_mgmt, settings as settings_api
 from .api.v2 import websocket as v2_websocket
 from .api.v2 import version_check as v2_version_check
-from .api.v2 import screen_control as v2_screen_control
 from .api.v2 import mdm as v2_mdm
 from .api.v2 import auth as v2_auth, users as v2_users
 from .core.utils import ensure_directory_exists, setup_logging, get_hkt_now
@@ -78,8 +77,6 @@ app.include_router(v2_websocket.router, prefix="/api/v2", tags=["WebSocket (V2)"
 
 app.include_router(v2_auth.router, prefix="/api/v2")
 app.include_router(v2_users.router, prefix="/api/v2")
-
-app.include_router(v2_screen_control.router, prefix="/api/v2")
 
 # Serve APK files
 @app.get("/api/download/{app_id}/{branch}/{filename}")
