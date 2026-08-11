@@ -1,5 +1,6 @@
 // src/services/api.js
 import { API_BASE } from '../utils/constants';
+import { WS_BASE } from '../utils/constants';
 
 class ApiService {
   constructor() {
@@ -405,6 +406,141 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify(configData),
     });
+  }
+
+  // ==================== 螢幕遠端控制 API ====================
+  
+  /**
+   * 啟動螢幕截取（開始推送畫面）
+   * @param {string} androidId - 設備的 Android ID
+   * @param {number} quality - JPEG 壓縮品質 (1-100)
+   * @param {number} scale - 縮放倍數 (1=原尺寸, 2=50%, 3=33%)
+   */
+  async startScreenCapture(androidId, quality = 50, scale = 2) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_screen_capture',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `screen_${Date.now()}`,
+      quality: quality,
+      scale: scale
+    });
+  }
+
+  /**
+   * 停止螢幕截取
+   * @param {string} androidId - 設備的 Android ID
+   */
+  async stopScreenCapture(androidId) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_stop_capture',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `stop_${Date.now()}`
+    });
+  }
+
+  /**
+   * 發送觸控事件（點擊螢幕）
+   * @param {string} androidId - 設備的 Android ID
+   * @param {number} x - X 座標
+   * @param {number} y - Y 座標
+   * @param {string} action - 'tap' | 'down' | 'move' | 'up' (預設: tap)
+   */
+  async sendTouchEvent(androidId, x, y, action = 'tap') {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_touch_event',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `touch_${Date.now()}`,
+      x: x,
+      y: y,
+      touch_action: action
+    });
+  }
+
+  /**
+   * 發送按鍵事件（虛擬按鍵）
+   * @param {string} androidId - 設備的 Android ID
+   * @param {number} keycode - Android Keycode (3=HOME, 4=BACK, 187=RECENT)
+   */
+  async sendKeyEvent(androidId, keycode) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_key_event',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `key_${Date.now()}`,
+      keycode: keycode
+    });
+  }
+
+  /**
+   * 發送文字輸入（輸入文字到焦點輸入框）
+   * @param {string} androidId - 設備的 Android ID
+   * @param {string} text - 要輸入的文字
+   */
+  async sendTextInput(androidId, text) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_input_text',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `input_${Date.now()}`,
+      text: text
+    });
+  }
+
+  /**
+   * 發送滑動手勢（swipe）
+   * @param {string} androidId - 設備的 Android ID
+   * @param {number} startX - 起始 X 座標
+   * @param {number} startY - 起始 Y 座標
+   * @param {number} endX - 結束 X 座標
+   * @param {number} endY - 結束 Y 座標
+   * @param {number} duration - 持續時間（毫秒，預設 300ms）
+   */
+  async sendSwipeGesture(androidId, startX, startY, endX, endY, duration = 300) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_swipe',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `swipe_${Date.now()}`,
+      start_x: startX,
+      start_y: startY,
+      end_x: endX,
+      end_y: endY,
+      duration: duration
+    });
+  }
+
+  /**
+   * 旋轉螢幕方向
+   * @param {string} androidId - 設備的 Android ID
+   * @param {number} rotation - 0=正常, 1=90度, 2=180度, 3=270度
+   */
+  async rotateScreen(androidId, rotation) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_rotate_screen',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `rotate_${Date.now()}`,
+      rotation: rotation
+    });
+  }
+
+  /**
+   * 截取單一畫面快照（非即時串流）
+   * @param {string} androidId - 設備的 Android ID
+   * @returns {Promise<{image_base64: string}>} Base64 編碼的 JPEG 圖片
+   */
+  async captureScreenshot(androidId) {
+    return this.sendDeviceCommandV2(androidId, {
+      action: 'DC_screenshot',
+      target_app: 'com.kowloondairy.mdmapp',
+      task_id: `screenshot_${Date.now()}`
+    });
+  }
+
+  /**
+   * 取得螢幕即時串流的 WebSocket URL
+   * @param {string} androidId - 設備的 Android ID
+   * @param {string} deviceApiKey - 設備的 API Key（用於 WS 認證）
+   * @returns {string} WebSocket URL
+   */
+  getScreenStreamWSUrl(androidId) {
+    return `${WS_BASE}/api/v2/ws/screen/live/${androidId}?token=${this.token}`;
   }
 }
 
