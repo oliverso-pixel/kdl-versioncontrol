@@ -15,6 +15,7 @@ import json
 import secrets
 import string
 import logging
+import base64
 
 logger = logging.getLogger("v2.mdm.websocket")
 logger.setLevel(logging.INFO)

@@ -5,6 +5,7 @@ from redis.asyncio import ConnectionPool
 from typing import Optional, Any
 import json
 import logging
+import time
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -180,5 +181,3 @@ class RedisManager:
 
 # 全域實例
 redis_manager = RedisManager()
-
-import time

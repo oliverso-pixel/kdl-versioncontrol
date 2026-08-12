@@ -417,12 +417,9 @@ class ApiService {
    * @param {number} scale - 縮放倍數 (1=原尺寸, 2=50%, 3=33%)
    */
   async startScreenCapture(androidId, quality = 50, scale = 2) {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_screen_capture',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `screen_${Date.now()}`,
-      quality: quality,
-      scale: scale
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/start`, {
+      method: 'POST',
+      body: JSON.stringify({ quality, scale }),
     });
   }
 
@@ -431,10 +428,8 @@ class ApiService {
    * @param {string} androidId - 設備的 Android ID
    */
   async stopScreenCapture(androidId) {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_stop_capture',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `stop_${Date.now()}`
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/stop`, {
+      method: 'POST',
     });
   }
 
@@ -446,13 +441,9 @@ class ApiService {
    * @param {string} action - 'tap' | 'down' | 'move' | 'up' (預設: tap)
    */
   async sendTouchEvent(androidId, x, y, action = 'tap') {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_touch_event',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `touch_${Date.now()}`,
-      x: x,
-      y: y,
-      touch_action: action
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/touch`, {
+      method: 'POST',
+      body: JSON.stringify({ x, y, action }),
     });
   }
 
@@ -462,11 +453,9 @@ class ApiService {
    * @param {number} keycode - Android Keycode (3=HOME, 4=BACK, 187=RECENT)
    */
   async sendKeyEvent(androidId, keycode) {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_key_event',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `key_${Date.now()}`,
-      keycode: keycode
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/key`, {
+      method: 'POST',
+      body: JSON.stringify({ keycode }),
     });
   }
 
@@ -476,11 +465,9 @@ class ApiService {
    * @param {string} text - 要輸入的文字
    */
   async sendTextInput(androidId, text) {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_input_text',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `input_${Date.now()}`,
-      text: text
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/input`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
     });
   }
 
@@ -494,15 +481,12 @@ class ApiService {
    * @param {number} duration - 持續時間（毫秒，預設 300ms）
    */
   async sendSwipeGesture(androidId, startX, startY, endX, endY, duration = 300) {
-    return this.sendDeviceCommandV2(androidId, {
-      action: 'DC_swipe',
-      target_app: 'com.kowloondairy.mdmapp',
-      task_id: `swipe_${Date.now()}`,
-      start_x: startX,
-      start_y: startY,
-      end_x: endX,
-      end_y: endY,
-      duration: duration
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/swipe`, {
+      method: 'POST',
+      body: JSON.stringify({
+        start_x: startX, start_y: startY,
+        end_x: endX, end_y: endY, duration,
+      }),
     });
   }
 
