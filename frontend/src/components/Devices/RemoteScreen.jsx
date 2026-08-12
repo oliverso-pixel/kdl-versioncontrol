@@ -6,7 +6,8 @@ const RemoteScreen = ({ device, onClose }) => {
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
   const frameIntervalRef = useRef(null);
-  
+  const closingRef = useRef(false);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
@@ -21,7 +22,8 @@ const RemoteScreen = ({ device, onClose }) => {
 
   useEffect(() => {
     if (!device) return;
-    
+    closingRef.current = false;
+
     // 建立 WebSocket 連線
     const wsUrl = api.getScreenStreamWSUrl(device.android_id, device.device_api_key);
     const ws = new WebSocket(wsUrl);
@@ -35,10 +37,12 @@ const RemoteScreen = ({ device, onClose }) => {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         if (data.type === 'screen_frame' && data.image_base64) {
           renderFrame(data.image_base64);
           updateStats(data.timestamp || Date.now());
+          // 首張畫面到達即視為 capturing（用於覆蓋 loading spinner）
+          if (!isCapturing) setIsCapturing(true);
         }
       } catch (e) {
         console.error('解析 WebSocket 訊息失敗:', e);
@@ -49,42 +53,37 @@ const RemoteScreen = ({ device, onClose }) => {
       console.error('❌ WebSocket 錯誤:', error);
     };
 
+    // 注意：不在 ws.onclose 觸發 stopScreenCapture
+    // 讓後端保持 device 端 Service 常駐，避免下次重連需重新授權螢幕錄製
     ws.onclose = () => {
       console.log('🔌 WebSocket 已斷線');
-      stopScreenCapture();
     };
 
     return () => {
+      closingRef.current = true;
+      // 使用者關閉視窗才明確停止 device 端 capture
       stopScreenCapture();
-      ws.close();
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      try { ws.close(); } catch (_) {}
+      wsRef.current = null;
       if (frameIntervalRef.current) {
         clearInterval(frameIntervalRef.current);
         frameIntervalRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
 
   const startScreenCapture = async () => {
     try {
-      await api.startScreenCapture(device.android_id, quality, scale);
-      setIsCapturing(true);
-      
-      // 每秒請求新畫面（可調整為 500ms = 2 FPS）
-      // frameIntervalRef.current = setInterval(() => {
-      //   if (wsRef.current?.readyState === WebSocket.OPEN) {
-      //     wsRef.current.send(JSON.stringify({
-      //       type: 'request_frame',
-      //       device_id: device.android_id
-      //     }));
-      //   }
-      // }, 1000);
+      const resp = await api.startScreenCapture(device.android_id, quality, scale);
+      // status: "started" (首次) 或 "reused" (複用現有 session)
+      console.log('🎬 螢幕截取啟動回應:', resp?.status);
+      // 首張 frame 到達時 ws.onmessage 會設 isCapturing=true
+      // 若是複用現有 session，畫面應立即進來
     } catch (err) {
       console.error('啟動螢幕截取失敗:', err);
-      alert('❌ 無法啟動螢幕控制，請確認裝置已授予螢幕錄製權限');
+      const msg = err?.response?.data?.detail || err?.message || '未知錯誤';
+      alert(`❌ 無法啟動螢幕控制: ${msg}`);
     }
   };
 

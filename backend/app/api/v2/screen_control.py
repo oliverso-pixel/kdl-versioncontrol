@@ -86,26 +86,15 @@ class ScreenStreamManager:
             logger.info(f"🔌 [Screen Stream] 前端已斷線 | 設備: {android_id}")
     
     async def send_frame(self, android_id: str, frame_data: dict):
-        """發送畫面給前端"""
+        """發送畫面給前端 — 直接轉發 device 已壓縮的 JPEG，不再二次壓縮"""
         if android_id in self.active_streams:
             try:
-                # FPS 限制
+                # FPS 限制（防止 device 端過度餵送把前端塞爆）
                 if not await redis_manager.set_fps_limit(android_id, settings.SCREEN_MAX_FPS):
                     return False  # 超過 FPS 限制，丟棄此幀
-                
-                # 壓縮圖片
-                if "image_base64" in frame_data:
-                    frame_data["image_base64"] = await compress_image(
-                        frame_data["image_base64"],
-                        quality=settings.SCREEN_QUALITY,
-                        scale=settings.SCREEN_SCALE
-                    )
-                
+
                 await self.active_streams[android_id].send_json(frame_data)
-                
-                # 更新統計
                 await redis_manager.increment_frame_count(android_id)
-                
                 return True
             except Exception as e:
                 logger.error(f"發送畫面失敗: {e}")
@@ -147,25 +136,28 @@ async def start_screen_capture(
     if not is_online:
         raise HTTPException(status_code=400, detail="Device is offline")
     
-    # 檢查是否已有活躍 Session
+    # 若已有活躍 Session，複用同一 session_id（讓 App 端 idempotent 判斷）
+    # 不再直接 raise 400，避免使用者需要每次都被打斷
     existing_session = await redis_manager.get_screen_session(android_id)
-    if existing_session and existing_session.get("active"):
-        raise HTTPException(status_code=400, detail="Screen capture already active")
+    reuse = bool(existing_session and existing_session.get("active"))
     
-    # 建立 Session 記錄
-    session_id = f"screen_{android_id}_{int(get_hkt_now().timestamp()*1000)}"
-    session = ScreenControlSession(
-        device_id=device.id,
-        admin_user=token_payload.get("sub", "admin"),
-        session_id=session_id,
-        quality=request.quality,
-        scale=request.scale
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    
-    # 儲存到 Redis
+    # 若複用則沿用原 session_id，否則新建
+    if reuse:
+        session_id = existing_session.get("session_id") or \
+            f"screen_{android_id}_{int(get_hkt_now().timestamp()*1000)}"
+    else:
+        session_id = f"screen_{android_id}_{int(get_hkt_now().timestamp()*1000)}"
+        db_session = ScreenControlSession(
+            device_id=device.id,
+            admin_user=token_payload.get("sub", "admin"),
+            session_id=session_id,
+            quality=request.quality,
+            scale=request.scale
+        )
+        db.add(db_session)
+        db.commit()
+
+    # 更新/刷新 Redis session（TTL 重置）
     await redis_manager.set_screen_session(android_id, {
         "session_id": session_id,
         "quality": request.quality,
@@ -173,8 +165,8 @@ async def start_screen_capture(
         "active": True,
         "admin_user": token_payload.get("sub")
     })
-    
-    # 發送指令給 MDM App
+
+    # 發送指令給 MDM App（App 端會判斷 Service 是否已在跑，idempotent）
     command = {
         "action": "DC_screen_capture",
         "target_app": "com.kowloondairy.mdmapp",
@@ -182,25 +174,23 @@ async def start_screen_capture(
         "quality": request.quality,
         "scale": request.scale
     }
-    
-    # 推送到指令佇列
     await redis_manager.push_command(android_id, command)
-    
     success = await ws_manager.send_command(android_id, command)
-    
-    if not success:
-        # 清理 Session
+
+    if not success and not reuse:
+        # 首次啟動且指令發送失敗才清理
         await redis_manager.delete_screen_session(android_id)
         raise HTTPException(status_code=400, detail="Failed to send command to device")
-    
-    logger.info(f"📸 [Screen Capture] 已啟動 | 設備: {android_id} | Session: {session_id}")
-    
+
+    logger.info(
+        f"📸 [Screen Capture] {'複用' if reuse else '已啟動'} | 設備: {android_id} | Session: {session_id}"
+    )
     return {
-        "status": "started",
+        "status": "reused" if reuse else "started",
         "session_id": session_id,
         "quality": request.quality,
         "scale": request.scale,
-        "message": "Screen capture started"
+        "message": "Screen capture reused" if reuse else "Screen capture started"
     }
 
 @router.post("/admin/devices/{android_id}/screen/stop")
@@ -482,16 +472,11 @@ async def screen_stream_websocket(
                 await ws_manager.send_command(android_id, command)
             
     except WebSocketDisconnect:
+        # 只斷開前端串流連線，保留 device 端 ScreenCaptureService 常駐
+        # 這樣下次使用者重新開視窗時不需要重新授權 MediaProjection
+        # 明確結束 capture 由 /screen/stop API 或裝置重啟時處理
         screen_stream_manager.disconnect(android_id)
-        
-        # 如果前端斷線，自動停止截取
-        command = {
-            "action": "DC_stop_capture",
-            "target_app": "com.kowloondairy.mdmapp",
-            "task_id": f"stop_{int(get_hkt_now().timestamp()*1000)}"
-        }
-        await ws_manager.send_command(android_id, command)
-        await redis_manager.delete_screen_session(android_id)
+        logger.info(f"🔌 [Screen Stream] 前端斷線，保留 device 端 capture Service | 設備: {android_id}")
 
 # ============ 輔助函式 ============
 
