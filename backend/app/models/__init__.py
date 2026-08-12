@@ -1,3 +1,4 @@
+# backend/app/models/__init__.py
 from .application import Application
 from .branch import Branch
 from .version import Version

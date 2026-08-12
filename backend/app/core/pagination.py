@@ -1,3 +1,4 @@
+# backend/app/core/pagination.py
 from typing import TypeVar, Generic, List, Optional
 from pydantic import BaseModel
 from fastapi import Query

@@ -1,3 +1,4 @@
+# backend/app/api/v2/websocket.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 from typing import Dict, Set
 from datetime import datetime
@@ -124,4 +125,3 @@ async def notify_update_available_v2(app_id: str, branch: str, version_info: dic
         "api_version": "v2"
     }
     await manager.broadcast_to_app_branch(app_id, branch, message)
-    

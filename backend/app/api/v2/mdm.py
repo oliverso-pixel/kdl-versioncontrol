@@ -1,3 +1,4 @@
+# backend/app/api/v2/mdm.py
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
 from ...core.utils import get_hkt_now
+from ...core.redis_manager import redis_manager
 from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
@@ -195,6 +197,11 @@ async def device_websocket(
 
     await ws_manager.connect(websocket, android_id, db)
 
+    await redis_manager.set_device_online(android_id, {
+        "device_model": device.device_model,
+        "os_version": device.os_version
+    })
+
     try:
         await websocket.send_json({
             "type": "connected",
@@ -215,8 +222,6 @@ async def device_websocket(
                 continue
 
             logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
-            connected_list = list(ws_manager.active_devices.keys())
-            # logger.info(f"📋 [MDM WS 當前連線清單] 列表: {connected_list}")
 
             try:
                 message = json.loads(data)
@@ -228,6 +233,8 @@ async def device_websocket(
                 await websocket.send_json({"type": "pong", "status": "success", "message": ""})
                 device.last_check_time = get_hkt_now()
                 db.commit()
+                
+                await redis_manager.set_device_online(android_id)
             
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
@@ -557,12 +564,18 @@ async def device_websocket(
                         logger.error(f"❌ [Config 同步錯誤] 設備 {android_id} 更新設定失敗: {e}")
 
             elif message.get("type") == "screen_frame":
-                # MDM App 回傳的螢幕畫面
                 task_id = message.get("task_id")
                 image_base64 = message.get("image_base64")
                 
                 if image_base64:
-                    # 轉發給前端（透過 Screen Stream WebSocket）
+                    # 快取到 Redis（5秒有效期）
+                    await redis_manager.cache_screen_frame(
+                        android_id, 
+                        base64.b64decode(image_base64),
+                        ttl=5
+                    )
+                    
+                    # 轉發給前端
                     from .screen_control import screen_stream_manager
                     await screen_stream_manager.send_frame(android_id, {
                         "type": "screen_frame",

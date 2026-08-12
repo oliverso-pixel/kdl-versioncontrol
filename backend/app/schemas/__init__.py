@@ -1,3 +1,4 @@
+# backend/app/schemas/__init__.py
 from .application import Application, ApplicationCreate, ApplicationUpdate
 from .branch import Branch, BranchCreate, BranchUpdate
 from .device import Device, DeviceInfo

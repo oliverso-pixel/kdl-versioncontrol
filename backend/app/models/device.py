@@ -1,3 +1,4 @@
+# backend/app/models/device.py
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Numeric, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime

@@ -1,3 +1,4 @@
+# backend/app/models/screen_session.py
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from ..database import Base

@@ -1,3 +1,4 @@
+# backend/app/config.py
 import os
 from typing import List
 from pydantic_settings import BaseSettings
@@ -18,6 +19,13 @@ class Settings(BaseSettings):
     MSSQL_USER: str = os.getenv("MSSQL_USER", "FleetGPS")
     MSSQL_PASSWORD: str = os.getenv("MSSQL_PASSWORD", "")
     MSSQL_NAME: str = os.getenv("MSSQL_NAME", "ADDON")
+
+    # Redis
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
+    REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
+    REDIS_DB: int = int(os.getenv("REDIS_DB", 0))
+    REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", 50))
     
     @property
     def DATABASE_URL(self) -> str:
@@ -28,6 +36,18 @@ class Settings(BaseSettings):
     def MSSQL_URL(self) -> str:
         password = quote_plus(self.MSSQL_PASSWORD)
         return f"mssql+pymssql://{self.MSSQL_USER}:{password}@{self.MSSQL_HOST}:{self.MSSQL_PORT}/{self.MSSQL_NAME}"
+
+    @property
+    def REDIS_URL(self) -> str:
+        if self.REDIS_PASSWORD:
+            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    # Screen Control
+    SCREEN_FRAME_TTL: int = int(os.getenv("SCREEN_FRAME_TTL", 5))
+    SCREEN_MAX_FPS: int = int(os.getenv("SCREEN_MAX_FPS", 15))
+    SCREEN_QUALITY: int = int(os.getenv("SCREEN_QUALITY", 60))
+    SCREEN_SCALE: int = int(os.getenv("SCREEN_SCALE", 2))
     
     SECRET_KEY: str = os.getenv("SECRET_KEY")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")

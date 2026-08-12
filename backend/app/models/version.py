@@ -1,3 +1,4 @@
+# backend/app/models/version.py
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime

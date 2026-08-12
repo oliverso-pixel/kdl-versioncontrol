@@ -1,3 +1,4 @@
+# backend/app/models/branch.py
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime

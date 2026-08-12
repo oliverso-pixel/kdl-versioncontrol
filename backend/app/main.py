@@ -1,3 +1,4 @@
+# backend/app/main.py
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,6 +17,7 @@ from .api.v2 import screen_control as v2_screen_control
 from .api.v2 import mdm as v2_mdm
 from .api.v2 import auth as v2_auth, users as v2_users
 from .core.utils import ensure_directory_exists, setup_logging, get_hkt_now
+from .core.redis_manager import redis_manager
 
 # Setup logging
 setup_logging()
@@ -133,9 +135,16 @@ async def startup_event():
     logger.info(f"APK storage path: {settings.APK_STORAGE_PATH}")
     logger.info(f"Database: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}")
 
+    try:
+        await redis_manager.initialize()
+    except Exception as e:
+        logger.error(f"Redis 初始化失敗，部分功能可能受限: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Server shutting down")
+
+    await redis_manager.close()
 
 if __name__ == "__main__":
     import uvicorn

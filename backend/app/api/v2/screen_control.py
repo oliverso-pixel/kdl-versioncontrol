@@ -1,3 +1,5 @@
+# backend/app/api/v2/screen_control.py
+
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -5,17 +7,20 @@ from typing import Dict
 from jose import jwt, JWTError
 import json
 import logging
+import base64
+from io import BytesIO
+from PIL import Image
 
 from ...database import get_db
 from ...models import Device
 from ...models.screen_session import ScreenControlSession, ScreenControlLog
 from ...schemas.screen_control import (
     ScreenCaptureRequest, TouchEventRequest, KeyEventRequest,
-    TextInputRequest, SwipeGestureRequest, RotateScreenRequest,
-    ScreenControlSessionResponse
+    TextInputRequest, SwipeGestureRequest, RotateScreenRequest
 )
 from ...core.security import verify_token
 from ...core.utils import get_hkt_now
+from ...core.redis_manager import redis_manager
 from ...config import settings
 from .mdm import ws_manager
 
@@ -24,17 +29,56 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter(tags=["Screen Control (v2)"])
 
+# ============ 圖片處理工具 ============
+
+async def compress_image(image_base64: str, quality: int = 60, scale: int = 2) -> str:
+    """壓縮並縮放圖片"""
+    try:
+        # 解碼 Base64
+        image_data = base64.b64decode(image_base64)
+        img = Image.open(BytesIO(image_data))
+        
+        # 縮放
+        if scale > 1:
+            new_size = (img.width // scale, img.height // scale)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # 轉換為 RGB（PNG 可能是 RGBA）
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # 壓縮
+        buffer = BytesIO()
+        img.save(buffer, format='JPEG', quality=quality, optimize=True)
+        
+        # 編碼回 Base64
+        compressed = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        
+        logger.info(f"🖼️ 圖片壓縮: {len(image_base64)} → {len(compressed)} bytes (減少 {100 - int(len(compressed)/len(image_base64)*100)}%)")
+        
+        return compressed
+        
+    except Exception as e:
+        logger.error(f"圖片壓縮失敗: {e}")
+        return image_base64
+
 # ============ WebSocket 連線管理（給前端用） ============
 
 class ScreenStreamManager:
     """管理前端的螢幕串流 WebSocket 連線"""
     def __init__(self):
-        self.active_streams: Dict[str, WebSocket] = {}  # {android_id: websocket}
+        self.active_streams: Dict[str, WebSocket] = {}
     
     async def connect(self, websocket: WebSocket, android_id: str):
         await websocket.accept()
         self.active_streams[android_id] = websocket
         logger.info(f"🖥️ [Screen Stream] 前端已連線 | 設備: {android_id}")
+        
+        # 標記 Session 為活躍
+        await redis_manager.set_screen_session(android_id, {
+            "active": True,
+            "connected_at": get_hkt_now().isoformat()
+        })
     
     def disconnect(self, android_id: str):
         if android_id in self.active_streams:
@@ -45,13 +89,41 @@ class ScreenStreamManager:
         """發送畫面給前端"""
         if android_id in self.active_streams:
             try:
+                # FPS 限制
+                if not await redis_manager.set_fps_limit(android_id, settings.SCREEN_MAX_FPS):
+                    return False  # 超過 FPS 限制，丟棄此幀
+                
+                # 壓縮圖片
+                if "image_base64" in frame_data:
+                    frame_data["image_base64"] = await compress_image(
+                        frame_data["image_base64"],
+                        quality=settings.SCREEN_QUALITY,
+                        scale=settings.SCREEN_SCALE
+                    )
+                
                 await self.active_streams[android_id].send_json(frame_data)
+                
+                # 更新統計
+                await redis_manager.increment_frame_count(android_id)
+                
                 return True
             except Exception as e:
                 logger.error(f"發送畫面失敗: {e}")
                 self.disconnect(android_id)
                 return False
         return False
+    
+    async def send_error(self, android_id: str, error_message: str):
+        """發送錯誤訊息"""
+        if android_id in self.active_streams:
+            try:
+                await self.active_streams[android_id].send_json({
+                    "type": "error",
+                    "message": error_message,
+                    "timestamp": get_hkt_now().timestamp() * 1000
+                })
+            except Exception as e:
+                logger.error(f"發送錯誤訊息失敗: {e}")
 
 screen_stream_manager = ScreenStreamManager()
 
@@ -70,8 +142,15 @@ async def start_screen_capture(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    if not device.is_online:
+    # 檢查設備是否在線（從 Redis）
+    is_online = await redis_manager.is_device_online(android_id)
+    if not is_online:
         raise HTTPException(status_code=400, detail="Device is offline")
+    
+    # 檢查是否已有活躍 Session
+    existing_session = await redis_manager.get_screen_session(android_id)
+    if existing_session and existing_session.get("active"):
+        raise HTTPException(status_code=400, detail="Screen capture already active")
     
     # 建立 Session 記錄
     session_id = f"screen_{android_id}_{int(get_hkt_now().timestamp()*1000)}"
@@ -86,6 +165,15 @@ async def start_screen_capture(
     db.commit()
     db.refresh(session)
     
+    # 儲存到 Redis
+    await redis_manager.set_screen_session(android_id, {
+        "session_id": session_id,
+        "quality": request.quality,
+        "scale": request.scale,
+        "active": True,
+        "admin_user": token_payload.get("sub")
+    })
+    
     # 發送指令給 MDM App
     command = {
         "action": "DC_screen_capture",
@@ -95,14 +183,23 @@ async def start_screen_capture(
         "scale": request.scale
     }
     
+    # 推送到指令佇列
+    await redis_manager.push_command(android_id, command)
+    
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
+        # 清理 Session
+        await redis_manager.delete_screen_session(android_id)
         raise HTTPException(status_code=400, detail="Failed to send command to device")
+    
+    logger.info(f"📸 [Screen Capture] 已啟動 | 設備: {android_id} | Session: {session_id}")
     
     return {
         "status": "started",
         "session_id": session_id,
+        "quality": request.quality,
+        "scale": request.scale,
         "message": "Screen capture started"
     }
 
@@ -118,18 +215,23 @@ async def stop_screen_capture(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    # 更新 Session 狀態
-    active_session = db.query(ScreenControlSession).filter(
-        and_(
-            ScreenControlSession.device_id == device.id,
-            ScreenControlSession.is_active == True
-        )
-    ).first()
+    # 取得 Session
+    session_data = await redis_manager.get_screen_session(android_id)
     
-    if active_session:
-        active_session.is_active = False
-        active_session.ended_at = get_hkt_now()
-        db.commit()
+    # 更新資料庫 Session 狀態
+    if session_data:
+        active_session = db.query(ScreenControlSession).filter(
+            ScreenControlSession.session_id == session_data.get("session_id")
+        ).first()
+        
+        if active_session:
+            active_session.is_active = False
+            active_session.ended_at = get_hkt_now()
+            db.commit()
+    
+    # 清理 Redis
+    await redis_manager.delete_screen_session(android_id)
+    await redis_manager.clear_screen_frame(android_id)
     
     # 發送停止指令
     command = {
@@ -139,6 +241,11 @@ async def stop_screen_capture(
     }
     
     await ws_manager.send_command(android_id, command)
+    
+    logger.info(f"⏹️ [Screen Capture] 已停止 | 設備: {android_id}")
+    
+    # 斷開前端連線
+    screen_stream_manager.disconnect(android_id)
     
     return {"status": "stopped", "message": "Screen capture stopped"}
 
@@ -155,6 +262,11 @@ async def send_touch_event(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
+    # 檢查 Session
+    session_data = await redis_manager.get_screen_session(android_id)
+    if not session_data or not session_data.get("active"):
+        raise HTTPException(status_code=400, detail="No active screen session")
+    
     task_id = f"touch_{int(get_hkt_now().timestamp()*1000)}"
     
     command = {
@@ -169,6 +281,8 @@ async def send_touch_event(
     # 記錄操作日誌
     log_session(db, device.id, "tap", json.dumps({"x": request.x, "y": request.y}))
     
+    # 推送到佇列並發送
+    await redis_manager.push_command(android_id, command)
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
@@ -200,6 +314,7 @@ async def send_key_event(
     
     log_session(db, device.id, "key", json.dumps({"keycode": request.keycode}))
     
+    await redis_manager.push_command(android_id, command)
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
@@ -231,6 +346,7 @@ async def send_text_input(
     
     log_session(db, device.id, "input_text", json.dumps({"text": request.text}))
     
+    await redis_manager.push_command(android_id, command)
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
@@ -266,6 +382,7 @@ async def send_swipe_gesture(
     
     log_session(db, device.id, "swipe", json.dumps(request.dict()))
     
+    await redis_manager.push_command(android_id, command)
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
@@ -273,61 +390,32 @@ async def send_swipe_gesture(
     
     return {"status": "sent", "task_id": task_id}
 
-@router.post("/admin/devices/{android_id}/screen/rotate")
-async def rotate_screen(
+@router.get("/admin/devices/{android_id}/screen/status")
+async def get_screen_status(
     android_id: str,
-    request: RotateScreenRequest,
     db: Session = Depends(get_db),
     token_payload: dict = Depends(verify_token)
 ):
-    """[Admin] 旋轉螢幕方向"""
+    """取得螢幕控制狀態"""
     
     device = db.query(Device).filter(Device.android_id == android_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     
-    task_id = f"rotate_{int(get_hkt_now().timestamp()*1000)}"
+    # 從 Redis 取得狀態
+    session_data = await redis_manager.get_screen_session(android_id)
+    is_online = await redis_manager.is_device_online(android_id)
+    frame_count = await redis_manager.get_frame_count(android_id)
+    queue_length = await redis_manager.get_command_queue_length(android_id)
     
-    command = {
-        "action": "DC_rotate_screen",
-        "target_app": "com.kowloondairy.mdmapp",
-        "task_id": task_id,
-        "rotation": request.rotation
+    return {
+        "android_id": android_id,
+        "is_online": is_online,
+        "has_active_session": bool(session_data and session_data.get("active")),
+        "session_data": session_data,
+        "frame_count": frame_count,
+        "command_queue_length": queue_length
     }
-    
-    success = await ws_manager.send_command(android_id, command)
-    
-    if not success:
-        raise HTTPException(status_code=400, detail="Device offline")
-    
-    return {"status": "sent", "task_id": task_id}
-
-@router.post("/admin/devices/{android_id}/screen/screenshot")
-async def capture_screenshot(
-    android_id: str,
-    db: Session = Depends(get_db),
-    token_payload: dict = Depends(verify_token)
-):
-    """[Admin] 截取單一畫面快照"""
-    
-    device = db.query(Device).filter(Device.android_id == android_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    task_id = f"screenshot_{int(get_hkt_now().timestamp()*1000)}"
-    
-    command = {
-        "action": "DC_screenshot",
-        "target_app": "com.kowloondairy.mdmapp",
-        "task_id": task_id
-    }
-    
-    success = await ws_manager.send_command(android_id, command)
-    
-    if not success:
-        raise HTTPException(status_code=400, detail="Device offline")
-    
-    return {"status": "sent", "task_id": task_id, "message": "Screenshot will be returned via WebSocket"}
 
 # ============ WebSocket Endpoint（給前端接收畫面） ============
 
@@ -338,6 +426,9 @@ async def screen_stream_websocket(
     token: str = Query(...),
     db: Session = Depends(get_db)
 ):
+    """前端接收螢幕畫面的 WebSocket"""
+    
+    # 驗證 Token
     try:
         jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
@@ -350,6 +441,7 @@ async def screen_stream_websocket(
         return
 
     await screen_stream_manager.connect(websocket, android_id)
+    
     try:
         while True:
             data = await websocket.receive_text()
@@ -357,15 +449,49 @@ async def screen_stream_websocket(
                 msg = json.loads(data)
             except json.JSONDecodeError:
                 continue
-            # 把前端的畫面請求轉發給裝置（走裝置的 WS）
+            
+            # 前端請求畫面
             if msg.get("type") == "request_frame":
-                await ws_manager.send_command(android_id, {
-                    "action": "DC_request_frame",
+                # 先嘗試從 Redis 取得快取
+                cached_frame = await redis_manager.get_screen_frame(android_id)
+                
+                if cached_frame:
+                    await websocket.send_json({
+                        "type": "screen_frame",
+                        "image_base64": base64.b64encode(cached_frame).decode(),
+                        "source": "cache",
+                        "timestamp": get_hkt_now().timestamp() * 1000
+                    })
+                else:
+                    # 請求 MDM App 提供新畫面
+                    await ws_manager.send_command(android_id, {
+                        "action": "DC_request_frame",
+                        "target_app": "com.kowloondairy.mdmapp",
+                        "task_id": f"frame_{int(get_hkt_now().timestamp()*1000)}"
+                    })
+            
+            # 前端發送控制指令（滑鼠、鍵盤）
+            elif msg.get("type") == "control":
+                command = {
+                    "action": f"DC_{msg.get('action')}",
                     "target_app": "com.kowloondairy.mdmapp",
-                    "task_id": f"frame_{int(get_hkt_now().timestamp()*1000)}"
-                })
+                    "task_id": f"ctrl_{int(get_hkt_now().timestamp()*1000)}",
+                    **msg.get("params", {})
+                }
+                await redis_manager.push_command(android_id, command)
+                await ws_manager.send_command(android_id, command)
+            
     except WebSocketDisconnect:
         screen_stream_manager.disconnect(android_id)
+        
+        # 如果前端斷線，自動停止截取
+        command = {
+            "action": "DC_stop_capture",
+            "target_app": "com.kowloondairy.mdmapp",
+            "task_id": f"stop_{int(get_hkt_now().timestamp()*1000)}"
+        }
+        await ws_manager.send_command(android_id, command)
+        await redis_manager.delete_screen_session(android_id)
 
 # ============ 輔助函式 ============
 

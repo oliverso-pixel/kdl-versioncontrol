@@ -1,3 +1,4 @@
+# backend/app/schemas/device.py
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Dict
