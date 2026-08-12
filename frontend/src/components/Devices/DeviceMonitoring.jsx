@@ -2,6 +2,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation } from 'lucide-react';
 import api from '../../services/api';
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import L from "leaflet";
+import LocationMap from "./LocationMap";
+import RemoteScreen from './RemoteScreen';
 
 // 定位來源 (Android 回報 fused / gps / network / passive)
 const LOCATION_SOURCE_LABELS = {
@@ -10,11 +15,7 @@ const LOCATION_SOURCE_LABELS = {
   network: '網路',
   passive: '被動',
 };
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
-import L from "leaflet";
-import LocationMap from "./LocationMap";
-import RemoteScreen from './RemoteScreen';
+
 
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
