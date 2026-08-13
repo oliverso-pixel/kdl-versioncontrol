@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import api from '../../services/api';
+import { Link } from 'react-router-dom';
+import AuthUser from '../../models/AuthUser'; 
 
 const Login = ({ onLogin }) => {
   const [mode, setMode] = useState('v2');
@@ -11,18 +12,42 @@ const Login = ({ onLogin }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
+
     try {
+      let loggedInUser;
+
       if (mode === 'v1') {
-        const data = await api.login(apiKey);
-        localStorage.setItem('apiMode', 'v1');
-        onLogin(data.access_token, 'v1');
+        loggedInUser = await AuthUser.loginWithApiKey(apiKey);
       } else {
-        const data = await api.loginV2(username, password);
-        onLogin(data.access_token, 'v2');
+        loggedInUser = await AuthUser.loginWithCredentials(username, password);
       }
+
+      onLogin(loggedInUser.token, loggedInUser.apiMode, loggedInUser.isSuperuser);
+      
     } catch (err) {
-      setError('認證失敗，請檢查輸入的憑證');
+      console.error("登入失敗:", err);
+
+      const serverMessage = err.response?.data?.detail || err.message || '';
+
+      if (err.response?.status === 403) {
+        setError('權限不足，請確認帳號是否為 superuser');
+      } else if (serverMessage) {
+        // 💡 比對後端回傳的特定錯誤代碼
+        if (serverMessage === "ACCOUNT_LOCKED_MAX_ATTEMPTS") {
+          setError("帳號已被系統停用，請聯繫管理員或自行重設密碼。");
+        }
+        else if (serverMessage.startsWith("INVALID_PASSWORD_REMAINING_")) {
+          const remaining = serverMessage.split("_").pop();
+          setError(`帳號或密碼錯誤（剩餘嘗試次數：${remaining} 次）`);
+        }
+        else {
+          setError(serverMessage === "帳號或密碼錯誤" ? "帳號或密碼錯誤，請重新輸入" : serverMessage);
+        }
+      } else {
+        setError('帳號或密碼錯誤，請重新輸入');
+      }
     } finally {
       setLoading(false);
     }
@@ -33,10 +58,10 @@ const Login = ({ onLogin }) => {
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow">
         <div>
           <h2 className="text-center text-3xl font-extrabold text-gray-900">版本控制中心</h2>
-          {/* <div className="flex justify-center mt-4 space-x-2">
+          <div className="flex justify-center mt-4 space-x-2">
             <button onClick={() => setMode('v1')} className={`px-4 py-1 rounded ${mode === 'v1' ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>V1 (API Key)</button>
             <button onClick={() => setMode('v2')} className={`px-4 py-1 rounded ${mode === 'v2' ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>V2 (帳號密碼)</button>
-          </div> */}
+          </div>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {mode === 'v1' ? (
@@ -45,6 +70,14 @@ const Login = ({ onLogin }) => {
             <div className="space-y-4">
               <input type="text" required className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-indigo-500" placeholder="帳號 (Username)" value={username} onChange={(e) => setUsername(e.target.value)} />
               <input type="password" required className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-indigo-500" placeholder="密碼 (Password)" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <div className="flex justify-end mt-2">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
+                >
+                  忘記密碼？
+                </Link>
+              </div>
             </div>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}

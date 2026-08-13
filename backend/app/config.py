@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 load_dotenv()
 
 class Settings(BaseSettings):
+    # Database - 分離的參數
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", 3306))
     DB_USER: str = os.getenv("DB_USER", "root")
@@ -29,6 +30,15 @@ class Settings(BaseSettings):
         password = quote_plus(self.MSSQL_PASSWORD)
         return f"mssql+pymssql://{self.MSSQL_USER}:{password}@{self.MSSQL_HOST}:{self.MSSQL_PORT}/{self.MSSQL_NAME}"
     
+    
+    # 動態建構 DATABASE_URL
+    @property
+    def DATABASE_URL(self) -> str:
+        # 對密碼進行 URL 編碼
+        password = quote_plus(self.DB_PASSWORD)
+        return f"mysql+pymysql://{self.DB_USER}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    
+    # 其他設定保持不變
     SECRET_KEY: str = os.getenv("SECRET_KEY")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))

@@ -17,6 +17,7 @@ import logging
 
 logger = logging.getLogger("v2.mdm.websocket")
 logger.setLevel(logging.INFO)
+
 router = APIRouter(tags=["MDM Control (v2)"])
 
 def generate_device_key():
@@ -44,6 +45,7 @@ async def register_device(
 
     device = None
     
+    # 將 dict 轉為 JSON 字串以便存入 TEXT 欄位
     add_info_str = json.dumps(payload.additional_info) if payload.additional_info else None
     
     if payload.hardware_id:
@@ -188,7 +190,6 @@ async def device_websocket(
     db: Session = Depends(get_db)
 ):
     """監聽連線、維持心跳、即時狀態回報"""
-
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         await websocket.close(code=1008)
@@ -813,7 +814,6 @@ async def get_admin_store_app_details(
     [Web Panel] 取得單一 App 的詳細資訊
     提供給 Web Panel 使用，透過 JWT Token 驗證。
     """
-
     app = db.query(Application).filter(
         Application.app_id == app_id, 
         Application.is_active == True

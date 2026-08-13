@@ -38,7 +38,13 @@ class ApiService {
           this.clearToken();
           window.location.href = '/login';
         }
-        throw new Error(`API Error: ${response.status}`);
+
+        const errorData = await response.json().catch(() => ({}));
+
+        const error = new Error(`API Error: ${response.status}`);
+        error.response = { data: errorData };
+
+        throw error;
       }
 
       return await response.json();
@@ -240,18 +246,27 @@ class ApiService {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,
     });
-    
-    if (!response.ok) throw new Error('登入失敗');
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || '登入失敗');
+    }
+
     const data = await response.json();
-    this.setToken(data.access_token);
-    localStorage.setItem('apiMode', 'v2');
+
+    await this.setToken(data.access_token);
+
     return data;
   }
 
   // Users Management V2
   async getUsers() { return this.request('/api/v2/admin/users'); }
+  async getDepartments() { return this.request('/api/v2/departments'); }
   async createUser(data) { return this.request('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }); }
   async deleteUser(userId) { return this.request(`/api/v2/admin/users/${userId}`, { method: 'DELETE' }); }
+  async toggleUserActiveStatus(userId) { return this.request(`/api/v2/admin/users/${userId}/toggle-active`, { method: 'PATCH' }); }
+  async updateUserPermission(userId, action) { return this.request(`/api/v2/admin/users/${userId}/permission?action=${action}`, { method: 'PATCH' }); }
+  async updateUserAppPermissions(userId, selectedApp) { return this.request(`/api/v2/admin/users/${userId}/AppPermissions`, { method: 'PATCH', body: JSON.stringify(selectedApp), }); }
 
   // Store Management V2
   async getStoreApps() { return this.request('/api/v2/admin/store/apps'); }
@@ -541,6 +556,24 @@ class ApiService {
    */
   getScreenStreamWSUrl(androidId) {
     return `${WS_BASE}/api/v2/ws/screen/live/${androidId}?token=${this.token}`;
+  }
+  async forgotPassword(email) {
+    return this.request('/api/v2/auth/forgotPassword', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token, newPassword) {
+    return this.request('/api/v2/auth/resetPassword', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({
+        token: token,
+        new_password: newPassword
+      }),
+    });
   }
 }
 

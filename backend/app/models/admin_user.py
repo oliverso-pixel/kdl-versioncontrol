@@ -14,3 +14,6 @@ class AdminUser(Base):
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=get_hkt_now)
     last_login = Column(DateTime, nullable=True)
+    app_id = Column(String(100), nullable=True)
+    permission_level = Column(Integer, default=1)
+    department_code = Column(String(100), nullable=True)
