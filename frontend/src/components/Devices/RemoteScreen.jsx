@@ -139,22 +139,142 @@ const RemoteScreen = ({ device, onClose }) => {
     }
   };
 
-  const handleCanvasClick = async (e) => {
+  // ===== 手勢追蹤 =====
+  // 分辨 tap / long-press / swipe / drag，並轉成 canvas 座標送到 backend
+  const gestureRef = useRef(null);           // { startX, startY, startTs, points, longPressTimer, isLongPress }
+  const LONG_PRESS_MS = 500;                  // 按住到此門檻視為 long-press
+  const MOVE_THRESHOLD_PX = 8;                // 位移小於此值仍算 tap
+  const DRAG_SAMPLE_INTERVAL_MS = 30;         // 拖動採樣間隔（30ms 約 33Hz）
+
+  const canvasCoords = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
-    // 計算實際座標（考慮縮放）
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    
-    const x = Math.floor((e.clientX - rect.left) * scaleX);
-    const y = Math.floor((e.clientY - rect.top) * scaleY);
+    // touch 事件用 changedTouches[0]，mouse 用 e 本身
+    const src = e.touches?.[0] || e.changedTouches?.[0] || e;
+    return {
+      x: Math.max(0, Math.floor((src.clientX - rect.left) * scaleX)),
+      y: Math.max(0, Math.floor((src.clientY - rect.top) * scaleY)),
+    };
+  };
 
+  const sendGestureStroke = async (points, durationMs) => {
     try {
-      await api.sendTouchEvent(device.android_id, x, y, 'tap');
+      await api.sendGesture(device.android_id, [
+        { points, duration_ms: Math.max(1, Math.round(durationMs)), start_ms: 0 },
+      ]);
     } catch (err) {
-      console.error('發送點擊事件失敗:', err);
+      console.error('發送手勢失敗:', err);
     }
+  };
+
+  const handlePointerStart = (e) => {
+    e.preventDefault();
+    const { x, y } = canvasCoords(e);
+    const now = performance.now();
+
+    // 先開一個 long-press 定時器；若在時間內沒明顯位移就 fire long-press 並鎖定
+    const longPressTimer = setTimeout(() => {
+      const g = gestureRef.current;
+      if (!g || g.fired) return;
+      const dx = g.lastX - g.startX;
+      const dy = g.lastY - g.startY;
+      if (Math.hypot(dx, dy) < MOVE_THRESHOLD_PX) {
+        g.isLongPress = true;
+        // 不立即發送 — 使用者仍可能繼續拖動變成 drag-after-long-press
+        // 待 pointerEnd 時決定
+      }
+    }, LONG_PRESS_MS);
+
+    gestureRef.current = {
+      startX: x, startY: y,
+      lastX: x, lastY: y,
+      startTs: now,
+      points: [{ x, y, t: now }],
+      longPressTimer,
+      isLongPress: false,
+      fired: false,
+    };
+  };
+
+  const handlePointerMove = (e) => {
+    const g = gestureRef.current;
+    if (!g) return;
+    const { x, y } = canvasCoords(e);
+    const now = performance.now();
+    g.lastX = x;
+    g.lastY = y;
+    // 採樣：跟上一點時間差需 >= interval 才記錄，避免軌跡過密
+    const last = g.points[g.points.length - 1];
+    if (now - last.t >= DRAG_SAMPLE_INTERVAL_MS) {
+      g.points.push({ x, y, t: now });
+    }
+  };
+
+  const handlePointerEnd = async (e) => {
+    const g = gestureRef.current;
+    if (!g || g.fired) return;
+    g.fired = true;
+    clearTimeout(g.longPressTimer);
+    gestureRef.current = null;
+
+    const { x, y } = canvasCoords(e);
+    const endTs = performance.now();
+    const totalDurationMs = endTs - g.startTs;
+    const dx = x - g.startX;
+    const dy = y - g.startY;
+    const totalDistance = Math.hypot(dx, dy);
+
+    // 補一點終點（避免採樣間隔錯過最後位置）
+    const points = g.points.slice();
+    const lastPt = points[points.length - 1];
+    if (lastPt.x !== x || lastPt.y !== y) {
+      points.push({ x, y, t: endTs });
+    }
+
+    if (totalDistance < MOVE_THRESHOLD_PX) {
+      // 未明顯移動 → tap 或 long-press
+      if (g.isLongPress || totalDurationMs >= LONG_PRESS_MS) {
+        // long-press：單點 stroke + 完整按住時長
+        await sendGestureStroke(
+          [{ x: g.startX, y: g.startY }],
+          Math.max(LONG_PRESS_MS, totalDurationMs),
+        );
+      } else {
+        // tap：單點 + 短時長
+        await sendGestureStroke(
+          [{ x: g.startX, y: g.startY }],
+          Math.min(80, Math.max(30, totalDurationMs)),
+        );
+      }
+    } else {
+      // 有明顯位移 → swipe 或 drag
+      // 為節省頻寬：若採樣點太多，抽稀至 <= 20 點（保留起點與終點）
+      const simplified = points.length <= 20
+        ? points.map(p => ({ x: p.x, y: p.y }))
+        : simplifyPoints(points, 20);
+      await sendGestureStroke(simplified, totalDurationMs);
+    }
+  };
+
+  const handlePointerCancel = () => {
+    const g = gestureRef.current;
+    if (g) clearTimeout(g.longPressTimer);
+    gestureRef.current = null;
+  };
+
+  // 等距抽稀，保留起點/終點
+  const simplifyPoints = (pts, targetCount) => {
+    if (pts.length <= targetCount) return pts.map(p => ({ x: p.x, y: p.y }));
+    const out = [];
+    const step = (pts.length - 1) / (targetCount - 1);
+    for (let i = 0; i < targetCount; i++) {
+      const idx = Math.round(i * step);
+      const p = pts[idx];
+      out.push({ x: p.x, y: p.y });
+    }
+    return out;
   };
 
   const handleKeyPress = async (keycode) => {
@@ -278,8 +398,15 @@ const RemoteScreen = ({ device, onClose }) => {
           {isCapturing ? (
             <canvas
               ref={canvasRef}
-              onClick={handleCanvasClick}
-              className="max-w-full max-h-full border-2 border-purple-500 rounded shadow-2xl cursor-crosshair"
+              onMouseDown={handlePointerStart}
+              onMouseMove={handlePointerMove}
+              onMouseUp={handlePointerEnd}
+              onMouseLeave={handlePointerCancel}
+              onTouchStart={handlePointerStart}
+              onTouchMove={handlePointerMove}
+              onTouchEnd={handlePointerEnd}
+              onTouchCancel={handlePointerCancel}
+              className="max-w-full max-h-full border-2 border-purple-500 rounded shadow-2xl cursor-crosshair select-none touch-none"
               style={{ imageRendering: 'crisp-edges' }}
             />
           ) : (

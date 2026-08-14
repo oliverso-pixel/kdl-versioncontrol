@@ -16,7 +16,8 @@ from ...models import Device
 from ...models.screen_session import ScreenControlSession, ScreenControlLog
 from ...schemas.screen_control import (
     ScreenCaptureRequest, TouchEventRequest, KeyEventRequest,
-    TextInputRequest, SwipeGestureRequest, RotateScreenRequest
+    TextInputRequest, SwipeGestureRequest, RotateScreenRequest,
+    GestureRequest
 )
 from ...core.security import verify_token
 from ...core.utils import get_hkt_now
@@ -371,14 +372,69 @@ async def send_swipe_gesture(
     }
     
     log_session(db, device.id, "swipe", json.dumps(request.dict()))
-    
+
     await redis_manager.push_command(android_id, command)
     success = await ws_manager.send_command(android_id, command)
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Device offline")
-    
+
     return {"status": "sent", "task_id": task_id}
+
+
+@router.post("/admin/devices/{android_id}/screen/gesture")
+async def send_gesture(
+    android_id: str,
+    request: GestureRequest,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token)
+):
+    """[Admin] 發送統一手勢（tap / long-press / swipe / drag / multi-touch）。
+
+    Frontend 依 stroke 內容自行判斷手勢類型並封裝為 strokes 陣列，
+    device 端由 AccessibilityService 的 GestureDescription 直接派送。
+    """
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    session_data = await redis_manager.get_screen_session(android_id)
+    if not session_data or not session_data.get("active"):
+        raise HTTPException(status_code=400, detail="No active screen session")
+
+    task_id = f"gesture_{int(get_hkt_now().timestamp()*1000)}"
+
+    # 把 pydantic 模型轉為 dict-of-dict，交給 MDM 端解析
+    strokes_payload = [
+        {
+            "points": [{"x": p.x, "y": p.y} for p in stroke.points],
+            "duration_ms": stroke.duration_ms,
+            "start_ms": stroke.start_ms,
+        }
+        for stroke in request.strokes
+    ]
+
+    command = {
+        "action": "DC_gesture",
+        "target_app": "com.kowloondairy.mdmapp",
+        "task_id": task_id,
+        "strokes": strokes_payload,
+    }
+
+    # 記錄一筆簡短摘要（避免整段軌跡塞爆 log）
+    summary = ", ".join(
+        f"{len(s.points)}pt/{s.duration_ms}ms" for s in request.strokes
+    )
+    log_session(db, device.id, "gesture", summary)
+
+    await redis_manager.push_command(android_id, command)
+    success = await ws_manager.send_command(android_id, command)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="Device offline")
+
+    return {"status": "sent", "task_id": task_id}
+
 
 @router.get("/admin/devices/{android_id}/screen/status")
 async def get_screen_status(

@@ -491,6 +491,18 @@ class ApiService {
   }
 
   /**
+   * 統一手勢：tap / long-press / swipe / drag / multi-touch。
+   * @param {string} androidId
+   * @param {Array<{points: Array<{x:number,y:number}>, duration_ms:number, start_ms?:number}>} strokes
+   */
+  async sendGesture(androidId, strokes) {
+    return this.request(`/api/v2/admin/devices/${androidId}/screen/gesture`, {
+      method: 'POST',
+      body: JSON.stringify({ strokes }),
+    });
+  }
+
+  /**
    * 旋轉螢幕方向
    * @param {string} androidId - 設備的 Android ID
    * @param {number} rotation - 0=正常, 1=90度, 2=180度, 3=270度
