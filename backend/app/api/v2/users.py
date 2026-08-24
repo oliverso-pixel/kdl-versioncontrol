@@ -174,7 +174,7 @@ async def toggle_user_active(user_id: int, db: Session = Depends(get_db), token:
 @router.patch("/admin/users/{user_id}/permission")
 async def update_user_permission(
     user_id: int, 
-    action: str = Query(..., regex="^(promote|demote)$"),
+    action: str = Query(..., pattern="^(promote|demote)$"),
     db: Session = Depends(get_db), 
     token: dict = Depends(verify_token)
 ):

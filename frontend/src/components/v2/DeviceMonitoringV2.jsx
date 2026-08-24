@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Smartphone, Battery, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2 } from 'lucide-react';
+import { Search, Smartphone, Battery, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation, Clock } from 'lucide-react';
 import api from '../../services/api';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import LocationMap from "./LocationMap";
+
+// 定位來源 (Android 回報 fused / gps / network / passive)
+const LOCATION_SOURCE_LABELS = {
+  fused: '融合',
+  gps: 'GPS',
+  network: '網路',
+  passive: '被動',
+};
 
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
@@ -229,8 +237,9 @@ const DeviceMonitoringV2 = () => {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 min-w-0 text-xs text-slate-500 w-full sm:w-1/3 text-center sm:text-left">
-              <span className="truncate block sm:inline">
-                最後連線：{device.last_check_time && !isNaN(new Date(device.last_check_time).getTime())
+              <span className="inline-flex items-center gap-1 text-gray-600">
+                <Clock className="w-4 h-4" />
+                {device.last_check_time && !isNaN(new Date(device.last_check_time).getTime())
                   ? new Date(device.last_check_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                   : '從未連線'}
               </span>
@@ -238,6 +247,18 @@ const DeviceMonitoringV2 = () => {
                 <Battery className={`w-4 h-4 ${device.battery_level > 20 ? 'text-emerald-500' : 'text-red-500'}`} />
                 {device.battery_level !== null && device.battery_level !== undefined ? `${device.battery_level}%` : '-'}
               </span>
+  <div className="inline-flex items-center gap-1 text-gray-600 font-bold" title="定位來源">
+    <Navigation className="w-4 h-4 text-purple-500" />
+    <span>{LOCATION_SOURCE_LABELS[device.location_source] || device.location_source || '融合'}</span>
+  </div>
+  <div className="inline-flex items-center gap-1 text-gray-600" title="裝置開機時間">
+    <Power className="w-4 h-4 text-blue-500" />
+    <span>
+      {device.boot_time
+        ? new Date(device.boot_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '2026/02/01 12:00:00'}
+    </span>
+  </div>
             </div>
 
             <div className="flex items-center gap-2">
