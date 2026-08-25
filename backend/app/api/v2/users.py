@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import collate
 from typing import List
 from ...database import get_db
 from ...core.security import verify_token, hash_password
@@ -24,10 +25,13 @@ async def get_users(db: Session = Depends(get_db), token: dict = Depends(verify_
     operator_is_super = bool(token.get("is_superuser", False))
     operator_dept_code = token.get("department_code")
 
+    # base_query = db.query(AdminUser, Department).outerjoin(
+    #     Department, AdminUser.department_code == Department.dept_code
+    # )
     base_query = db.query(AdminUser, Department).outerjoin(
-        Department, AdminUser.department_code == Department.dept_code
-    )
-
+        Department, 
+        collate(AdminUser.department_code, 'utf8mb4_unicode_ci') == collate(Department.dept_code, 'utf8mb4_unicode_ci')
+        )
     if not operator_is_super:
         if not operator_dept_code:
             raise HTTPException(

@@ -57,8 +57,6 @@ function MainLayout({ setIsAuthenticated }) {
         return <BranchManagement />;
       case 'versions':
         return <VersionManagement />;
-      case 'devices':
-        return <DeviceMonitoring />;
       case 'logs':
         return <UpdateLogs />;
       case 'settings':
@@ -66,7 +64,7 @@ function MainLayout({ setIsAuthenticated }) {
       case 'store_v2':
         return <StoreManagement />;
       case 'devices_v2':
-        return <DeviceMonitoringV2 />;
+        return <DeviceMonitoring />;
       case 'users_v2':
         if (!user.isAccessibleLevel(3)) {
           return <Navigate to="/" replace />;
