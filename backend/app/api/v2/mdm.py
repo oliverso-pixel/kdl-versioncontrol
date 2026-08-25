@@ -8,12 +8,14 @@ from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
 from ...core.security import verify_token, verify_api_key
 from ...core.utils import get_hkt_now
+from ...core.redis_manager import redis_manager
 from ...core.geocoder import reverse_geocode_zh
 from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
 import string
 import logging
+import base64
 
 logger = logging.getLogger("v2.mdm.websocket")
 logger.setLevel(logging.INFO)
@@ -190,12 +192,18 @@ async def device_websocket(
     db: Session = Depends(get_db)
 ):
     """監聽連線、維持心跳、即時狀態回報"""
+
     device = db.query(Device).filter(and_(Device.android_id == android_id, Device.device_api_key == api_key)).first()
     if not device:
         await websocket.close(code=1008)
         return
 
     await ws_manager.connect(websocket, android_id, db)
+
+    await redis_manager.set_device_online(android_id, {
+        "device_model": device.device_model,
+        "os_version": device.os_version
+    })
 
     try:
         await websocket.send_json({
@@ -230,6 +238,8 @@ async def device_websocket(
                 await websocket.send_json({"type": "pong", "status": "success", "message": ""})
                 device.last_check_time = get_hkt_now()
                 db.commit()
+
+                await redis_manager.set_device_online(android_id)
             
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
@@ -581,7 +591,14 @@ async def device_websocket(
                 image_base64 = message.get("image_base64")
                 
                 if image_base64:
-                    # 轉發給前端（透過 Screen Stream WebSocket）
+                    # 快取到 Redis（5秒有效期）
+                    await redis_manager.cache_screen_frame(
+                        android_id, 
+                        base64.b64decode(image_base64),
+                        ttl=5
+                    )
+
+                    # 轉發給前端
                     from .screen_control import screen_stream_manager
                     await screen_stream_manager.send_frame(android_id, {
                         "type": "screen_frame",
@@ -664,7 +681,6 @@ async def get_store_apps(
     [Store] 獲取應用程式商城首頁 (所有 App 列表)
     返回所有啟用的 App，並附上各分支的最新版本號供首頁預覽
     """
-    # 簡易驗證 API Key (實務上應檢查 device_api_key 是否存在於 devices 表)
     
     # 1. 查詢所有啟用中的 App
     apps = db.query(Application).filter(Application.is_active == True).all()

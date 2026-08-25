@@ -16,6 +16,7 @@ from .api.v2 import screen_control as v2_screen_control
 from .api.v2 import mdm as v2_mdm
 from .api.v2 import auth as v2_auth, users as v2_users
 from .core.utils import ensure_directory_exists, setup_logging, get_hkt_now
+from .core.redis_manager import redis_manager
 from .core.address_backfill import backfill_loop
 import asyncio
 
@@ -68,10 +69,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # Include routers
 app.include_router(admin.router, tags=["Admin"])
-# app.include_router(auth.router, tags=["Authentication"])
-# app.include_router(version_check.router, tags=["Version Check (V1)"])
-# app.include_router(admin.router, tags=["Admin"])
-# app.include_router(websocket.router, tags=["WebSocket (V1)"])
 app.include_router(statistics.router, tags=["Statistics"])
 app.include_router(database_mgmt.router, tags=["Database Management"])
 app.include_router(settings_api.router, tags=["System Settings"])
@@ -145,11 +142,17 @@ async def startup_event():
     global _backfill_task
     _backfill_task = asyncio.create_task(backfill_loop())
 
+    try:
+        await redis_manager.initialize()
+    except Exception as e:
+        logger.error(f"Redis 初始化失敗，部分功能可能受限: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     if _backfill_task:
         _backfill_task.cancel()
     logger.info("Server shutting down")
+    await redis_manager.close()
 
 if __name__ == "__main__":
     import uvicorn

@@ -7,7 +7,7 @@ from urllib.parse import quote_plus
 load_dotenv()
 
 class Settings(BaseSettings):
-    # Database - 分離的參數
+
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", 3306))
     DB_USER: str = os.getenv("DB_USER", "root")
@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     MSSQL_USER: str = os.getenv("MSSQL_USER", "FleetGPS")
     MSSQL_PASSWORD: str = os.getenv("MSSQL_PASSWORD", "")
     MSSQL_NAME: str = os.getenv("MSSQL_NAME", "ADDON")
+
+    # Redis
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
+    REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
+    REDIS_DB: int = int(os.getenv("REDIS_DB", 0))
+    REDIS_MAX_CONNECTIONS: int = int(os.getenv("REDIS_MAX_CONNECTIONS", 50))
     
     @property
     def DATABASE_URL(self) -> str:
@@ -30,15 +37,18 @@ class Settings(BaseSettings):
         password = quote_plus(self.MSSQL_PASSWORD)
         return f"mssql+pymssql://{self.MSSQL_USER}:{password}@{self.MSSQL_HOST}:{self.MSSQL_PORT}/{self.MSSQL_NAME}"
     
-    
-    # 動態建構 DATABASE_URL
     @property
-    def DATABASE_URL(self) -> str:
-        # 對密碼進行 URL 編碼
-        password = quote_plus(self.DB_PASSWORD)
-        return f"mysql+pymysql://{self.DB_USER}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def REDIS_URL(self) -> str:
+        if self.REDIS_PASSWORD:
+            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    # Screen Control
+    SCREEN_FRAME_TTL: int = int(os.getenv("SCREEN_FRAME_TTL", 5))
+    SCREEN_MAX_FPS: int = int(os.getenv("SCREEN_MAX_FPS", 15))
+    SCREEN_QUALITY: int = int(os.getenv("SCREEN_QUALITY", 60))
+    SCREEN_SCALE: int = int(os.getenv("SCREEN_SCALE", 2))
     
-    # 其他設定保持不變
     SECRET_KEY: str = os.getenv("SECRET_KEY")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
@@ -58,9 +68,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8080",
-        "http://192.9.204.144:3000",
-        "http://192.9.204.144:3001",
-        "http://192.9.204.144"
+        "http://10.10.205.205:3000",
+        "http://10.10.205.205:3001",
+        "http://10.10.205.205"
     ]
     
     class Config:
