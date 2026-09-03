@@ -124,4 +124,3 @@ async def notify_update_available_v2(app_id: str, branch: str, version_info: dic
         "api_version": "v2"
     }
     await manager.broadcast_to_app_branch(app_id, branch, message)
-    

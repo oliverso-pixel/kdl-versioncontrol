@@ -66,7 +66,7 @@ async def compress_image(image_base64: str, quality: int = 60, scale: int = 2) -
 class ScreenStreamManager:
 
     """管理前端的螢幕串流 WebSocket 連線"""
-
+    
     def __init__(self):
         self.active_streams: Dict[str, WebSocket] = {}
     
@@ -74,7 +74,7 @@ class ScreenStreamManager:
         await websocket.accept()
         self.active_streams[android_id] = websocket
         logger.info(f"🖥️ [Screen Stream] 前端已連線 | 設備: {android_id}")
-
+        
         # 標記 Session 為活躍
         await redis_manager.set_screen_session(android_id, {
             "active": True,
@@ -87,9 +87,7 @@ class ScreenStreamManager:
             logger.info(f"🔌 [Screen Stream] 前端已斷線 | 設備: {android_id}")
     
     async def send_frame(self, android_id: str, frame_data: dict):
-
-       """發送畫面給前端 — 直接轉發 device 已壓縮的 JPEG，不再二次壓縮"""
-
+        """發送畫面給前端 — 直接轉發 device 已壓縮的 JPEG，不再二次壓縮"""
         if android_id in self.active_streams:
             try:
                 # FPS 限制（防止 device 端過度餵送把前端塞爆）
@@ -104,8 +102,8 @@ class ScreenStreamManager:
                 self.disconnect(android_id)
                 return False
         return False
-
-        async def send_error(self, android_id: str, error_message: str):
+    
+    async def send_error(self, android_id: str, error_message: str):
         """發送錯誤訊息"""
         if android_id in self.active_streams:
             try:
@@ -557,4 +555,3 @@ def log_session(db: Session, device_id: int, action: str, params: str):
             db.commit()
     except Exception as e:
         logger.error(f"記錄操作日誌失敗: {e}")
-        
