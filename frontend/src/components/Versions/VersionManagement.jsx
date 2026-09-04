@@ -10,7 +10,7 @@ const VersionManagement = () => {
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [selectedApp, setSelectedApp] = useState('');
+  // const [selectedApp, setSelectedApp] = useState('');
   const [uploadData, setUploadData] = useState({
     application_id: '',
     branch_id: '',
@@ -161,7 +161,7 @@ const VersionManagement = () => {
 
     try {
       setUploadProgress(10);
-      const result = await api.uploadAPK(formData);
+      // const result = await api.uploadAPK(formData);
       setUploadProgress(100);
       
       alert('版本上傳成功！');

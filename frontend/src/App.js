@@ -5,7 +5,7 @@ import {
   Settings, LogOut, Menu, Bell
 } from 'lucide-react';
 import Login from './components/Auth/Login';
-import ForgotPassword from './components/v2/ForgotPassword';
+import ForgotPassword from './components/User/ForgotPassword';
 import Dashboard from './components/Dashboard/Dashboard';
 import ApplicationManagement from './components/Applications/ApplicationManagement';
 import BranchManagement from './components/Branches/BranchManagement';
@@ -14,9 +14,8 @@ import DeviceMonitoring from './components/Devices/DeviceMonitoring';
 import UpdateLogs from './components/Logs/UpdateLogs';
 import SystemSettings from './components/Settings/SystemSettings';
 import NotificationCenter from './components/Notifications/NotificationCenter';
-import StoreManagement from './components/v2/StoreManagement';
-import DeviceMonitoringV2 from './components/v2/DeviceMonitoringV2';
-import UserManagement from './components/v2/UserManagement';
+import StoreManagement from './components/Store/StoreManagement';
+import UserManagement from './components/User/UserManagement';
 import AutoLogoutProvider from './components/AutoLogoutProvider';
 import './App.css';
 import AuthUser from './models/AuthUser'; 
@@ -32,17 +31,25 @@ function MainLayout({ setIsAuthenticated }) {
     setIsAuthenticated(false);
   };
 
-  const navigation = user.apiMode === 'v1' ? [
+  // const navigation = user.apiMode === 'v1' ? [
+  //   { name: '儀表板', icon: Home, view: 'dashboard' },
+  //   { name: '應用程式管理', icon: Package, view: 'applications' },
+  //   { name: '分支管理', icon: GitBranch, view: 'branches' },
+  //   { name: '版本管理', icon: GitBranch, view: 'versions' },
+  //   { name: '設備監控', icon: Smartphone, view: 'devices' },
+  //   { name: '系統設定', icon: Settings, view: 'settings' },
+  // ] : [
+  //   { name: '儀表板', icon: Home, view: 'dashboard' },
+  //   ...(user.isAccessibleLevel(1) ? [{ name: '企業商城 (App/版控)', icon: Package, view: 'store' }] : []),
+  //   ...(user.isAccessibleLevel(1) ? [{ name: '設備監控', icon: Smartphone, view: 'devices' }] : []),
+  //   ...(user.isAccessibleLevel(3) ? [{ name: '帳號管理', icon: Users, view: 'users_v2' }] : []),
+  //   ...(user.isAccessibleLevel(3) ? [{ name: '系統設定', icon: Settings, view: 'settings' }] : []),
+  // ];
+
+  const navigation = [
     { name: '儀表板', icon: Home, view: 'dashboard' },
-    { name: '應用程式管理', icon: Package, view: 'applications' },
-    { name: '分支管理', icon: GitBranch, view: 'branches' },
-    { name: '版本管理', icon: GitBranch, view: 'versions' },
-    { name: '設備監控', icon: Smartphone, view: 'devices' },
-    { name: '系統設定', icon: Settings, view: 'settings' },
-  ] : [
-    { name: '儀表板', icon: Home, view: 'dashboard' },
-    ...(user.isAccessibleLevel(1) ? [{ name: '企業商城 (App/版控)', icon: Package, view: 'store_v2' }] : []),
-    ...(user.isAccessibleLevel(1) ? [{ name: '設備監控 (V2)', icon: Smartphone, view: 'devices_v2' }] : []),
+    ...(user.isAccessibleLevel(1) ? [{ name: '企業商城 (App/版控)', icon: Package, view: 'store' }] : []),
+    ...(user.isAccessibleLevel(1) ? [{ name: '設備監控', icon: Smartphone, view: 'devices' }] : []),
     ...(user.isAccessibleLevel(3) ? [{ name: '帳號管理', icon: Users, view: 'users_v2' }] : []),
     ...(user.isAccessibleLevel(3) ? [{ name: '系統設定', icon: Settings, view: 'settings' }] : []),
   ];
@@ -61,9 +68,9 @@ function MainLayout({ setIsAuthenticated }) {
         return <UpdateLogs />;
       case 'settings':
         return <SystemSettings />;
-      case 'store_v2':
+      case 'store':
         return <StoreManagement />;
-      case 'devices_v2':
+      case 'devices':
         return <DeviceMonitoring />;
       case 'users_v2':
         if (!user.isAccessibleLevel(3)) {
