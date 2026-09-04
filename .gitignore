@@ -8,7 +8,12 @@ backend/app/static/apks/
 backend/backups/
 backend/logs/
 backend/tests/
+backend/.env
+backend/.env.example
+backend/run.py
 
 frontend/README.md
+frontend/.env
+frontend/package.json
 
 testupdateapp/
