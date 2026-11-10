@@ -368,8 +368,180 @@ async def device_websocket(
                             mssql_db.close()
                 
                 await websocket.send_json({
-                    "type": "status_update_ack", 
+                    "type": "status_update_ack",
                     "status": "success",
+                    "updated_at": get_hkt_now().isoformat()
+                })
+
+            # 處理批次補送 (離線後上線時一次送多筆)
+            elif message.get("type") == "status_update_batch":
+                batch_id = message.get("batch_id")
+                raw_items = message.get("items") or []
+                MAX_BATCH = 200
+
+                if not isinstance(raw_items, list) or len(raw_items) == 0:
+                    await websocket.send_json({
+                        "type": "status_update_batch_ack",
+                        "status": "error",
+                        "batch_id": batch_id,
+                        "reason": "empty_items"
+                    })
+                    continue
+
+                if len(raw_items) > MAX_BATCH:
+                    await websocket.send_json({
+                        "type": "status_update_batch_ack",
+                        "status": "error",
+                        "batch_id": batch_id,
+                        "reason": f"batch_too_large (max {MAX_BATCH})"
+                    })
+                    continue
+
+                # 解析每一筆並標準化 gps_time
+                parsed_items = []
+                for it in raw_items:
+                    gps_time_raw = it.get("GPStime")
+                    if gps_time_raw is not None:
+                        if isinstance(gps_time_raw, (int, float)):
+                            gt = datetime.fromtimestamp(gps_time_raw / 1000.0)
+                        else:
+                            try:
+                                gt = datetime.fromisoformat(str(gps_time_raw))
+                            except ValueError:
+                                gt = get_hkt_now()
+                    else:
+                        gt = get_hkt_now()
+                    if gt.tzinfo is not None:
+                        gt = gt.replace(tzinfo=None)
+
+                    boot_time_raw = it.get("boot_time")
+                    bt = (
+                        datetime.fromtimestamp(boot_time_raw / 1000.0)
+                        if isinstance(boot_time_raw, (int, float))
+                        else None
+                    )
+
+                    parsed_items.append({
+                        "gps_time": gt,
+                        "boot_time": bt,
+                        "battery": it.get("battery"),
+                        "lat": it.get("lat"),
+                        "lng": it.get("lng"),
+                        "route": it.get("route", it.get("Route")),
+                        "altitude": it.get("altitude", it.get("Altitude")),
+                        "satellites": it.get("satellites_used", it.get("Satellites")),
+                        "conn_status": it.get("connection_status", it.get("Connection_status", "online")),
+                        "location_source": it.get("location_source"),
+                        "client_address": it.get("address", it.get("Address")),
+                    })
+
+                # 伺服器端 coalescing：只用「最新 GPStime」那筆去 UPDATE devices
+                latest = max(parsed_items, key=lambda x: x["gps_time"])
+
+                # 只對 latest 做一次 reverse geocode (避免 N 次外部呼叫)
+                latest_address = None
+                if latest["lat"] and latest["lng"]:
+                    latest_address = await reverse_geocode_zh(latest["lat"], latest["lng"])
+                if not latest_address:
+                    latest_address = latest["client_address"]
+
+                if not device.gps_time or latest["gps_time"] > device.gps_time:
+                    device.battery_level = latest["battery"]
+                    device.latitude = latest["lat"]
+                    device.longitude = latest["lng"]
+                    device.route = latest["route"]
+                    device.altitude = latest["altitude"]
+                    device.address = latest_address
+                    device.satellites = latest["satellites"]
+                    device.gps_time = latest["gps_time"]
+                    device.boot_time = latest["boot_time"]
+                    device.location_source = latest["location_source"]
+
+                device.last_check_time = get_hkt_now()
+
+                # 歷史紀錄：bulk insert (單次 round-trip)
+                history_rows = [
+                    {
+                        "d_id": device.id,
+                        "lat": p["lat"],
+                        "lng": p["lng"],
+                        "bat": p["battery"],
+                        "route": p["route"],
+                        "alt": p["altitude"],
+                        # 歷史列保留 client 回報的 address (若有)；避免對每一列再呼叫 Nominatim
+                        "addr": (latest_address if p is latest else p["client_address"]),
+                        "sat": p["satellites"],
+                        "gps_time": p["gps_time"],
+                        "conn_status": p["conn_status"],
+                    }
+                    for p in parsed_items if p["lat"] and p["lng"]
+                ]
+                if history_rows:
+                    db.execute(text("""
+                        INSERT INTO device_location_history
+                        (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
+                        VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
+                    """), history_rows)
+
+                db.commit()
+
+                # 判斷是否處於 MSSQL 休眠期
+                sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
+                sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
+                sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
+                sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
+                current_time = get_hkt_now().time()
+                try:
+                    s_hr, s_min = map(int, sleep_start_str.split(':'))
+                    e_hr, e_min = map(int, sleep_end_str.split(':'))
+                    start_t = time(s_hr, s_min)
+                    end_t = time(e_hr, e_min)
+                    if start_t <= end_t:
+                        is_sleeping = start_t <= current_time <= end_t
+                    else:
+                        is_sleeping = current_time >= start_t or current_time <= end_t
+                except Exception as e:
+                    logger.error(f"解析休眠時間錯誤: {e}")
+                    is_sleeping = False
+
+                if not is_sleeping and history_rows:
+                    mssql_db = next(get_mssql_db())
+                    if mssql_db:
+                        try:
+                            mssql_rows = [
+                                {
+                                    "dev_id": device.android_id,
+                                    "route": r["route"],
+                                    "bat": r["bat"],
+                                    "lat": r["lat"],
+                                    "lng": r["lng"],
+                                    "alt": r["alt"],
+                                    "addr": r["addr"],
+                                    "sat": r["sat"],
+                                    "gps_time": r["gps_time"],
+                                    "conn_status": r["conn_status"],
+                                }
+                                for r in history_rows
+                            ]
+                            mssql_db.execute(text("""
+                                INSERT INTO GPSLocationHistory
+                                (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
+                                VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
+                            """), mssql_rows)
+                            mssql_db.commit()
+                        except Exception as e:
+                            logger.error(f"批次寫入 MSSQL 失敗: {e}")
+                            mssql_db.rollback()
+                        finally:
+                            mssql_db.close()
+
+                logger.info(f"✅ [批次補送] 設備 {android_id} 共 {len(parsed_items)} 筆 (history {len(history_rows)}) batch_id={batch_id}")
+
+                await websocket.send_json({
+                    "type": "status_update_batch_ack",
+                    "status": "success",
+                    "batch_id": batch_id,
+                    "count": len(parsed_items),
                     "updated_at": get_hkt_now().isoformat()
                 })
 
