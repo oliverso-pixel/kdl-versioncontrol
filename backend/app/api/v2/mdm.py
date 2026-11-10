@@ -1027,14 +1027,41 @@ async def update_device_app_config(
     db.commit()
 
     # 如果設備在線上，透過 WebSocket 即時推播指令
+    task_id = f"cfg_{int(get_hkt_now().timestamp()*1000)}"
     payload = {
+        "task_id": task_id,
         "action": "update_config",
         "target_app": target_app_id,
-        "data": config_data
+        "data": config_data,
     }
-    await ws_manager.send_command(android_id, payload)
-    
-    return {"status": "success", "message": "Config saved and push attempted"}
+    pushed = await ws_manager.send_command(android_id, payload)
+
+    # 寫入指令歷史，方便追蹤是否成功推送
+    try:
+        db.execute(text("""
+            INSERT INTO device_command_results (device_id, task_id, action, result_data, created_at)
+            VALUES (:d_id, :t_id, :act, :res, NOW())
+        """), {
+            "d_id": device.id,
+            "t_id": task_id,
+            "act": "update_config",
+            "res": json.dumps({
+                "status": "sent" if pushed else "offline_queued",
+                "target_app": target_app_id,
+                "config_data": config_data,
+            }, ensure_ascii=False)
+        })
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"寫入 Command History 失敗 (update_config): {e}")
+
+    return {
+        "status": "success",
+        "pushed": pushed,
+        "task_id": task_id,
+        "message": "Config saved and push attempted"
+    }
 
 # @router.get("/devices/{android_id}/sync-configs")
 # async def device_pull_configs(android_id: str, api_key: str, db: Session = Depends(get_db)):

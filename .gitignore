@@ -17,3 +17,4 @@ frontend/.env
 frontend/package.json
 
 testupdateapp/
+backend/migrations_mdmapp_application.sql
