@@ -35,7 +35,7 @@ ensure_directory_exists("./backups")
 app = FastAPI(
     title="Version Control Center",
     description="Central version control system for Android applications",
-    version="1.0.0",
+    version="1.1.1",
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )

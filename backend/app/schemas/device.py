@@ -4,9 +4,9 @@ from typing import Optional, Dict
 
 class DeviceBase(BaseModel):
     android_id: str
-    device_model: str
-    os_version: str
-    app_version: str
+    device_model: Optional[str] = None
+    os_version: Optional[str] = None
+    app_version: Optional[str] = None
 
 class DeviceInfo(DeviceBase):
     additional_info: Optional[Dict] = None

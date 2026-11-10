@@ -197,14 +197,22 @@ const DeviceMonitoringV2 = () => {
   const filteredDevices = allDevices.filter(device => {
     const matchText = device.android_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                       (device.device_model && device.device_model.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchOnline = filterOnline === 'all' ? true : 
+
+    const matchOnline = filterOnline === 'all' ? true :
                         filterOnline === 'online' ? device.is_online : !device.is_online;
-    
-    const matchActive = filterActive === 'all' ? true : 
+
+    const matchActive = filterActive === 'all' ? true :
                         filterActive === 'active' ? device.is_active : !device.is_active;
 
     return matchText && matchOnline && matchActive;
+  }).sort((a, b) => {
+    const notesA = (a.notes || '').toString();
+    const notesB = (b.notes || '').toString();
+    const notesCmp = notesA.localeCompare(notesB, 'zh-Hant');
+    if (notesCmp !== 0) return notesCmp;
+    const modelA = (a.device_model || '').toString();
+    const modelB = (b.device_model || '').toString();
+    return modelA.localeCompare(modelB, 'zh-Hant');
   });
 
   const isOnline = selectedDevice?.is_online || false;
@@ -302,7 +310,7 @@ const DeviceMonitoringV2 = () => {
               <span className={`inline-flex h-3.5 w-3.5 rounded-full ${device.is_online ? 'bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.35)]' : 'bg-slate-300'}`} title={device.is_online ? '上線中' : '離線'} />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 truncate">
-                  <span className="truncate">{device.device_model || '未知設備'}</span>
+                  <span className="truncate">{device.notes || '未命名'}</span>
                   <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${device.is_active ? 'bg-indigo-100 text-indigo-700' : 'bg-red-100 text-red-700'}`}>
                     {device.is_active ? '啟用中' : '已停用'}
                   </span>
@@ -311,6 +319,7 @@ const DeviceMonitoringV2 = () => {
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span className="truncate">{device.device_model || '未知設備'}</span>
                   <span className="truncate">ID: {device.android_id}</span>
                 </div>
               </div>

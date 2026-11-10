@@ -174,8 +174,66 @@ class RedisManager:
                 "last_refill": current_time
             })
             return True
-        
+
         return False
+
+    # ==================== status_update rate limit ====================
+    async def check_status_rate_limit(
+        self,
+        android_id: str,
+        cost: int = 1,
+        capacity: int = 60,
+        refill_per_sec: float = 2.0,
+    ) -> tuple[bool, int]:
+        """
+        Token bucket per-device，用來限制 status_update / status_update_batch 的頻率。
+        - capacity: 60 → 允許短時間 burst 60 筆
+        - refill_per_sec: 2.0 → 持續速率 120/min，正常 5 分鐘一筆遠低於上限
+        - cost: 一次請求消耗幾個 token (單筆=1，批次=1，因為伺服器端已 coalesce)
+
+        Returns:
+            (allowed, retry_after_ms) — allowed=False 時 retry_after_ms 為建議等待毫秒數
+        """
+        key = f"ratelimit:status:{android_id}"
+        now_ms = int(time.time() * 1000)
+
+        try:
+            data = await self.client.hgetall(key)
+            if data:
+                tokens = float(data.get(b"tokens", capacity))
+                last_refill = int(data.get(b"last_refill", now_ms))
+            else:
+                tokens = float(capacity)
+                last_refill = now_ms
+
+            # 根據經過時間補充 token
+            elapsed_sec = max(0, (now_ms - last_refill) / 1000.0)
+            tokens = min(float(capacity), tokens + elapsed_sec * refill_per_sec)
+
+            if tokens >= cost:
+                tokens -= cost
+                await self.client.hset(key, mapping={
+                    "tokens": tokens,
+                    "last_refill": now_ms,
+                })
+                await self.client.expire(key, 300)  # 5 分鐘無活動後過期
+                return True, 0
+
+            # 不足：計算要等多久才有足夠 token
+            deficit = cost - tokens
+            retry_after_ms = int((deficit / refill_per_sec) * 1000)
+            await self.client.hset(key, mapping={
+                "tokens": tokens,
+                "last_refill": now_ms,
+            })
+            await self.client.expire(key, 300)
+            return False, retry_after_ms
+
+        except Exception as e:
+            logger.error(f"check_status_rate_limit 失敗 (fail-open): {e}")
+            # Redis 不可用時 fail-open，避免雪崩
+            return True, 0
+
 
 # 全域實例
 redis_manager = RedisManager()

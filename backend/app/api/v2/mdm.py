@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
 from pydantic import BaseModel
@@ -244,6 +245,17 @@ async def device_websocket(
             # 處理即時狀態回報 (GPS, 電量)
             if message.get("type") == "status_update":
 
+                # per-device rate limit：阻止單一裝置佔用處理能力
+                allowed, retry_after_ms = await redis_manager.check_status_rate_limit(android_id, cost=1)
+                if not allowed:
+                    logger.warning(f"⛔ [rate_limit] 設備 {android_id} 超過限制，retry_after={retry_after_ms}ms")
+                    await websocket.send_json({
+                        "type": "status_update_ack",
+                        "status": "throttled",
+                        "retry_after_ms": retry_after_ms,
+                    })
+                    continue
+
                 gps_time_raw = message.get("GPStime")
                 if gps_time_raw:
                     if isinstance(gps_time_raw, (int, float)):
@@ -281,92 +293,94 @@ async def device_websocket(
                 if not address:
                     address = message.get("address", message.get("Address"))
 
-                if not device.gps_time or gps_time > device.gps_time:
-                    device.battery_level = message.get("battery")
-                    device.latitude = message.get("lat")
-                    device.longitude = message.get("lng")
-                    device.route = route
-                    device.altitude = altitude
-                    device.address = address
-                    device.satellites = satellites
-                    device.gps_time = gps_time
-                    device.boot_time = boot_time
-                    device.location_source = location_source
+                # 將所有同步 DB 寫入丟去 threadpool，不阻塞 WS event loop
+                # (這樣其他裝置的 WS 封包仍可在 DB IO 期間被處理)
+                def _persist_single_sync() -> None:
+                    if not device.gps_time or gps_time > device.gps_time:
+                        device.battery_level = message.get("battery")
+                        device.latitude = message.get("lat")
+                        device.longitude = message.get("lng")
+                        device.route = route
+                        device.altitude = altitude
+                        device.address = address
+                        device.satellites = satellites
+                        device.gps_time = gps_time
+                        device.boot_time = boot_time
+                        device.location_source = location_source
 
-                device.last_check_time = get_hkt_now()
-                
-                if message.get("lat") and message.get("lng"):
-                    db.execute(text("""
-                        INSERT INTO device_location_history 
-                        (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
-                        VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
-                    """), {
-                        "d_id": device.id, 
-                        "lat": message.get("lat"), 
-                        "lng": message.get("lng"), 
-                        "bat": message.get("battery"),
-                        "route": route,
-                        "alt": altitude,
-                        "addr": address,
-                        "sat": satellites,
-                        "gps_time": gps_time,
-                        "conn_status": conn_status
-                    })
-                
-                db.commit()
+                    device.last_check_time = get_hkt_now()
 
-                sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
-                sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
-                
-                sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
-                sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
-                
-                # 判斷當前伺服器時間是否在休眠區間
-                current_time = get_hkt_now().time()
-                try:
-                    s_hr, s_min = map(int, sleep_start_str.split(':'))
-                    e_hr, e_min = map(int, sleep_end_str.split(':'))
-                    start_t = time(s_hr, s_min)
-                    end_t = time(e_hr, e_min)
-                    
-                    is_sleeping = False
-                    if start_t <= end_t:
-                        is_sleeping = start_t <= current_time <= end_t
-                    else: # 跨夜情況 (例如 22:00 到 06:00)
-                        is_sleeping = current_time >= start_t or current_time <= end_t
-                except Exception as e:
-                    logger.error(f"解析休眠時間錯誤: {e}")
-                    is_sleeping = False
+                    if message.get("lat") and message.get("lng"):
+                        db.execute(text("""
+                            INSERT INTO device_location_history
+                            (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
+                            VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
+                        """), {
+                            "d_id": device.id,
+                            "lat": message.get("lat"),
+                            "lng": message.get("lng"),
+                            "bat": message.get("battery"),
+                            "route": route,
+                            "alt": altitude,
+                            "addr": address,
+                            "sat": satellites,
+                            "gps_time": gps_time,
+                            "conn_status": conn_status
+                        })
 
-                # 若不在休眠期間，且有連線到 MSSQL，則插入資料
-                if not is_sleeping and message.get("lat") and message.get("lng"):
-                    # 手動取得 MSSQL Session
-                    mssql_db = next(get_mssql_db())
-                    if mssql_db:
-                        try:
-                            mssql_db.execute(text("""
-                                INSERT INTO GPSLocationHistory 
-                                (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
-                                VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
-                            """), {
-                                "dev_id": device.android_id, 
-                                "route": route,
-                                "bat": message.get("battery"),
-                                "lat": message.get("lat"),
-                                "lng": message.get("lng"),
-                                "alt": altitude,
-                                "addr": address,
-                                "sat": satellites,
-                                "gps_time": gps_time,
-                                "conn_status": conn_status
-                            })
-                            mssql_db.commit()
-                        except Exception as e:
-                            logger.error(f"寫入 MSSQL 失敗: {e}")
-                            mssql_db.rollback()
-                        finally:
-                            mssql_db.close()
-                
+                    db.commit()
+
+                    sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
+                    sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
+
+                    sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
+                    sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
+
+                    current_time = get_hkt_now().time()
+                    try:
+                        s_hr, s_min = map(int, sleep_start_str.split(':'))
+                        e_hr, e_min = map(int, sleep_end_str.split(':'))
+                        start_t = time(s_hr, s_min)
+                        end_t = time(e_hr, e_min)
+
+                        is_sleeping = False
+                        if start_t <= end_t:
+                            is_sleeping = start_t <= current_time <= end_t
+                        else:  # 跨夜情況 (例如 22:00 到 06:00)
+                            is_sleeping = current_time >= start_t or current_time <= end_t
+                    except Exception as e:
+                        logger.error(f"解析休眠時間錯誤: {e}")
+                        is_sleeping = False
+
+                    if not is_sleeping and message.get("lat") and message.get("lng"):
+                        mssql_db = next(get_mssql_db())
+                        if mssql_db:
+                            try:
+                                mssql_db.execute(text("""
+                                    INSERT INTO GPSLocationHistory
+                                    (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
+                                    VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
+                                """), {
+                                    "dev_id": device.android_id,
+                                    "route": route,
+                                    "bat": message.get("battery"),
+                                    "lat": message.get("lat"),
+                                    "lng": message.get("lng"),
+                                    "alt": altitude,
+                                    "addr": address,
+                                    "sat": satellites,
+                                    "gps_time": gps_time,
+                                    "conn_status": conn_status
+                                })
+                                mssql_db.commit()
+                            except Exception as e:
+                                logger.error(f"寫入 MSSQL 失敗: {e}")
+                                mssql_db.rollback()
+                            finally:
+                                mssql_db.close()
+
+                await run_in_threadpool(_persist_single_sync)
+
                 await websocket.send_json({
                     "type": "status_update_ack",
                     "status": "success",
@@ -394,6 +408,18 @@ async def device_websocket(
                         "status": "error",
                         "batch_id": batch_id,
                         "reason": f"batch_too_large (max {MAX_BATCH})"
+                    })
+                    continue
+
+                # per-device rate limit：一次批次只扣 1 個 token (伺服器端已 coalesce)
+                allowed, retry_after_ms = await redis_manager.check_status_rate_limit(android_id, cost=1)
+                if not allowed:
+                    logger.warning(f"⛔ [rate_limit batch] 設備 {android_id} 超過限制，retry_after={retry_after_ms}ms")
+                    await websocket.send_json({
+                        "type": "status_update_batch_ack",
+                        "status": "throttled",
+                        "batch_id": batch_id,
+                        "retry_after_ms": retry_after_ms,
                     })
                     continue
 
@@ -445,97 +471,102 @@ async def device_websocket(
                 if not latest_address:
                     latest_address = latest["client_address"]
 
-                if not device.gps_time or latest["gps_time"] > device.gps_time:
-                    device.battery_level = latest["battery"]
-                    device.latitude = latest["lat"]
-                    device.longitude = latest["lng"]
-                    device.route = latest["route"]
-                    device.altitude = latest["altitude"]
-                    device.address = latest_address
-                    device.satellites = latest["satellites"]
-                    device.gps_time = latest["gps_time"]
-                    device.boot_time = latest["boot_time"]
-                    device.location_source = latest["location_source"]
+                # 將所有同步 DB 寫入丟去 threadpool，避免阻塞 WS 的 event loop
+                # (這是本次重點：其他裝置的 WS 封包能在 DB IO 期間繼續被處理)
+                def _persist_batch_sync() -> int:
+                    if not device.gps_time or latest["gps_time"] > device.gps_time:
+                        device.battery_level = latest["battery"]
+                        device.latitude = latest["lat"]
+                        device.longitude = latest["lng"]
+                        device.route = latest["route"]
+                        device.altitude = latest["altitude"]
+                        device.address = latest_address
+                        device.satellites = latest["satellites"]
+                        device.gps_time = latest["gps_time"]
+                        device.boot_time = latest["boot_time"]
+                        device.location_source = latest["location_source"]
 
-                device.last_check_time = get_hkt_now()
+                    device.last_check_time = get_hkt_now()
 
-                # 歷史紀錄：bulk insert (單次 round-trip)
-                history_rows = [
-                    {
-                        "d_id": device.id,
-                        "lat": p["lat"],
-                        "lng": p["lng"],
-                        "bat": p["battery"],
-                        "route": p["route"],
-                        "alt": p["altitude"],
-                        # 歷史列保留 client 回報的 address (若有)；避免對每一列再呼叫 Nominatim
-                        "addr": (latest_address if p is latest else p["client_address"]),
-                        "sat": p["satellites"],
-                        "gps_time": p["gps_time"],
-                        "conn_status": p["conn_status"],
-                    }
-                    for p in parsed_items if p["lat"] and p["lng"]
-                ]
-                if history_rows:
-                    db.execute(text("""
-                        INSERT INTO device_location_history
-                        (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
-                        VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
-                    """), history_rows)
+                    history_rows = [
+                        {
+                            "d_id": device.id,
+                            "lat": p["lat"],
+                            "lng": p["lng"],
+                            "bat": p["battery"],
+                            "route": p["route"],
+                            "alt": p["altitude"],
+                            "addr": (latest_address if p is latest else p["client_address"]),
+                            "sat": p["satellites"],
+                            "gps_time": p["gps_time"],
+                            "conn_status": p["conn_status"],
+                        }
+                        for p in parsed_items if p["lat"] and p["lng"]
+                    ]
+                    if history_rows:
+                        db.execute(text("""
+                            INSERT INTO device_location_history
+                            (device_id, latitude, longitude, battery_level, route, altitude, address, satellites, gps_time, connection_status)
+                            VALUES (:d_id, :lat, :lng, :bat, :route, :alt, :addr, :sat, :gps_time, :conn_status)
+                        """), history_rows)
 
-                db.commit()
+                    db.commit()
 
-                # 判斷是否處於 MSSQL 休眠期
-                sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
-                sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
-                sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
-                sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
-                current_time = get_hkt_now().time()
-                try:
-                    s_hr, s_min = map(int, sleep_start_str.split(':'))
-                    e_hr, e_min = map(int, sleep_end_str.split(':'))
-                    start_t = time(s_hr, s_min)
-                    end_t = time(e_hr, e_min)
-                    if start_t <= end_t:
-                        is_sleeping = start_t <= current_time <= end_t
-                    else:
-                        is_sleeping = current_time >= start_t or current_time <= end_t
-                except Exception as e:
-                    logger.error(f"解析休眠時間錯誤: {e}")
-                    is_sleeping = False
+                    # MSSQL 休眠期判斷 + 批次寫入
+                    sleep_start_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_start").first()
+                    sleep_end_setting = db.query(SystemSetting).filter_by(category="mssql_sync", key="sleep_end").first()
+                    sleep_start_str = sleep_start_setting.value if sleep_start_setting else "00:00"
+                    sleep_end_str = sleep_end_setting.value if sleep_end_setting else "06:00"
+                    current_time = get_hkt_now().time()
+                    try:
+                        s_hr, s_min = map(int, sleep_start_str.split(':'))
+                        e_hr, e_min = map(int, sleep_end_str.split(':'))
+                        start_t = time(s_hr, s_min)
+                        end_t = time(e_hr, e_min)
+                        if start_t <= end_t:
+                            is_sleeping = start_t <= current_time <= end_t
+                        else:
+                            is_sleeping = current_time >= start_t or current_time <= end_t
+                    except Exception as e:
+                        logger.error(f"解析休眠時間錯誤: {e}")
+                        is_sleeping = False
 
-                if not is_sleeping and history_rows:
-                    mssql_db = next(get_mssql_db())
-                    if mssql_db:
-                        try:
-                            mssql_rows = [
-                                {
-                                    "dev_id": device.android_id,
-                                    "route": r["route"],
-                                    "bat": r["bat"],
-                                    "lat": r["lat"],
-                                    "lng": r["lng"],
-                                    "alt": r["alt"],
-                                    "addr": r["addr"],
-                                    "sat": r["sat"],
-                                    "gps_time": r["gps_time"],
-                                    "conn_status": r["conn_status"],
-                                }
-                                for r in history_rows
-                            ]
-                            mssql_db.execute(text("""
-                                INSERT INTO GPSLocationHistory
-                                (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
-                                VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
-                            """), mssql_rows)
-                            mssql_db.commit()
-                        except Exception as e:
-                            logger.error(f"批次寫入 MSSQL 失敗: {e}")
-                            mssql_db.rollback()
-                        finally:
-                            mssql_db.close()
+                    if not is_sleeping and history_rows:
+                        mssql_db = next(get_mssql_db())
+                        if mssql_db:
+                            try:
+                                mssql_rows = [
+                                    {
+                                        "dev_id": device.android_id,
+                                        "route": r["route"],
+                                        "bat": r["bat"],
+                                        "lat": r["lat"],
+                                        "lng": r["lng"],
+                                        "alt": r["alt"],
+                                        "addr": r["addr"],
+                                        "sat": r["sat"],
+                                        "gps_time": r["gps_time"],
+                                        "conn_status": r["conn_status"],
+                                    }
+                                    for r in history_rows
+                                ]
+                                mssql_db.execute(text("""
+                                    INSERT INTO GPSLocationHistory
+                                    (DeviceID, Route, Battery_level, Latitude, Longitude, Altitude, Address, Satellites, GPStime, Connection_status)
+                                    VALUES (:dev_id, :route, :bat, :lat, :lng, :alt, :addr, :sat, :gps_time, :conn_status)
+                                """), mssql_rows)
+                                mssql_db.commit()
+                            except Exception as e:
+                                logger.error(f"批次寫入 MSSQL 失敗: {e}")
+                                mssql_db.rollback()
+                            finally:
+                                mssql_db.close()
 
-                logger.info(f"✅ [批次補送] 設備 {android_id} 共 {len(parsed_items)} 筆 (history {len(history_rows)}) batch_id={batch_id}")
+                    return len(history_rows)
+
+                history_count = await run_in_threadpool(_persist_batch_sync)
+
+                logger.info(f"✅ [批次補送] 設備 {android_id} 共 {len(parsed_items)} 筆 (history {history_count}) batch_id={batch_id}")
 
                 await websocket.send_json({
                     "type": "status_update_batch_ack",
