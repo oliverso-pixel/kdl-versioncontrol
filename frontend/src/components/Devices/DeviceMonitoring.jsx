@@ -16,6 +16,13 @@ const LOCATION_SOURCE_LABELS = {
   passive: '被動',
 };
 
+// MDMApp Domain 預設環境 (與 MDMApp/.../data/PrefsManager.kt 的 PRO_* / DEV_* 對齊)
+const MDM_APP_ID = 'com.kowloondairy.mdmapp';
+const DOMAIN_PRESETS = {
+  pro: { api_domain: 'http://10.10.205.205:5072', ws_domain: 'ws://10.10.205.205:5072' },
+  dev: { api_domain: 'http://192.9.204.144:5072', ws_domain: 'ws://192.9.204.144:5072' },
+};
+
 
 const DeviceMonitoringV2 = () => {
   const [allDevices, setAllDevices] = useState([]);
@@ -94,6 +101,31 @@ const DeviceMonitoringV2 = () => {
     } catch (err) {
       setCurrentConfigText('{}');
     }
+  };
+
+  // 把 Domain 預設值注入目前編輯中的 JSON（只覆蓋 api_domain / ws_domain，其餘欄位保留）
+  const applyDomainPreset = (presetKey) => {
+    const preset = DOMAIN_PRESETS[presetKey];
+    if (!preset) return;
+    let base = {};
+    try {
+      const parsed = JSON.parse(currentConfigText);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) base = parsed;
+    } catch (_) { /* 原本不是合法 JSON，直接以空物件起手 */ }
+    const merged = { ...base, api_domain: preset.api_domain, ws_domain: preset.ws_domain };
+    setCurrentConfigText(JSON.stringify(merged, null, 2));
+  };
+
+  // 判斷目前 JSON 的 domain 是否正好等於某個預設
+  const currentDomainPreset = () => {
+    try {
+      const parsed = JSON.parse(currentConfigText);
+      if (!parsed || typeof parsed !== 'object') return null;
+      for (const [k, v] of Object.entries(DOMAIN_PRESETS)) {
+        if (parsed.api_domain === v.api_domain && parsed.ws_domain === v.ws_domain) return k;
+      }
+    } catch (_) { /* ignore */ }
+    return null;
   };
 
   const handleSaveAndPushConfig = async () => {
@@ -661,20 +693,54 @@ const DeviceMonitoringV2 = () => {
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
                               <span className="text-xs font-semibold text-gray-600">編輯 Config (JSON格式):</span>
                               <div className="flex gap-2 w-full sm:w-auto">
-                                <button 
-                                  onClick={() => setEditingConfigAppId(null)} 
+                                <button
+                                  onClick={() => setEditingConfigAppId(null)}
                                   className="flex-1 sm:flex-none text-xs px-3 py-1.5 border rounded hover:bg-gray-100"
                                 >
                                   取消
                                 </button>
-                                <button 
-                                  onClick={handleSaveAndPushConfig} 
+                                <button
+                                  onClick={handleSaveAndPushConfig}
                                   className="flex-1 sm:flex-none text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700"
                                 >
                                   儲存並推播
                                 </button>
                               </div>
                             </div>
+
+                            {/* MDMApp 專用：Pro / Dev Domain 快捷鈕 */}
+                            {app.app_id === MDM_APP_ID && (() => {
+                              const active = currentDomainPreset();
+                              const base = "text-xs px-3 py-1 rounded-full border transition";
+                              const activeCls = "bg-indigo-600 text-white border-indigo-600";
+                              const idleCls = "bg-white text-slate-700 border-slate-300 hover:bg-slate-50";
+                              return (
+                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                  <span className="text-xs text-slate-500">環境：</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => applyDomainPreset('pro')}
+                                    className={`${base} ${active === 'pro' ? activeCls : idleCls}`}
+                                    title={`${DOMAIN_PRESETS.pro.api_domain} / ${DOMAIN_PRESETS.pro.ws_domain}`}
+                                  >
+                                    Pro（正式）
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => applyDomainPreset('dev')}
+                                    className={`${base} ${active === 'dev' ? activeCls : idleCls}`}
+                                    title={`${DOMAIN_PRESETS.dev.api_domain} / ${DOMAIN_PRESETS.dev.ws_domain}`}
+                                  >
+                                    Dev（開發）
+                                  </button>
+                                  {active === null && (
+                                    <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                      自訂 Domain
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             <textarea
                               className="w-full h-32 bg-gray-800 text-green-400 font-mono text-xs p-2 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               value={currentConfigText}
