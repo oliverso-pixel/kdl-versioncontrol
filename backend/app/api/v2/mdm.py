@@ -185,6 +185,107 @@ class DeviceWSManager:
 
 ws_manager = DeviceWSManager()
 
+# ----------------- Pending-Command Queue (offline-safe push) ----------------- #
+
+async def queue_or_send_command(
+    db: Session, device: Device, payload: dict,
+    *, dedup: bool = True, expires_in_seconds: int = 7 * 24 * 3600
+) -> bool:
+    """
+    嘗試即時透過 WS 推送；若裝置離線，就落入 device_pending_commands，
+    等下次 WS 連線時由 flush_pending_commands 補派。
+
+    - dedup=True：同一 device × action × target_app 只保留最新一筆 pending，
+      舊的直接標 delivered 作廢，避免堆積多個版本更新指令。
+    - 回傳：是否即時派送成功。
+    """
+    task_id = payload.get("task_id") or f"cmd_{int(get_hkt_now().timestamp()*1000)}_{device.id}"
+    payload["task_id"] = task_id
+
+    pushed = await ws_manager.send_command(device.android_id, payload)
+    if pushed:
+        return True
+
+    # 離線 → 入佇列
+    target_app = payload.get("target_app")
+    action = payload.get("action", "unknown")
+    try:
+        if dedup:
+            db.execute(text("""
+                UPDATE device_pending_commands
+                SET delivered_at = NOW()
+                WHERE device_id = :d_id
+                  AND action = :act
+                  AND (target_app <=> :tgt)
+                  AND delivered_at IS NULL
+            """), {"d_id": device.id, "act": action, "tgt": target_app})
+
+        db.execute(text("""
+            INSERT INTO device_pending_commands
+                (device_id, task_id, action, target_app, payload, created_at, expires_at)
+            VALUES
+                (:d_id, :t_id, :act, :tgt, :pl, NOW(),
+                 DATE_ADD(NOW(), INTERVAL :exp SECOND))
+        """), {
+            "d_id": device.id,
+            "t_id": task_id,
+            "act": action,
+            "tgt": target_app,
+            "pl": json.dumps(payload, ensure_ascii=False),
+            "exp": expires_in_seconds,
+        })
+        db.commit()
+        logger.info(f"📦 [佇列入列] 設備離線，指令已暫存 | {device.android_id} | {action} | task={task_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ [佇列入列失敗] {device.android_id} | {action}: {e}")
+    return False
+
+
+async def flush_pending_commands(db: Session, device: Device) -> int:
+    """
+    裝置 WS 連線成功後呼叫一次。
+    依 created_at 順序派送未過期、未送達的指令；送出一筆就標 delivered。
+    回傳：實際派送成功的筆數。
+    """
+    rows = db.execute(text("""
+        SELECT id, task_id, payload
+        FROM device_pending_commands
+        WHERE device_id = :d_id
+          AND delivered_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
+        ORDER BY created_at ASC
+    """), {"d_id": device.id}).fetchall()
+
+    if not rows:
+        return 0
+
+    sent = 0
+    for row in rows:
+        try:
+            cmd = json.loads(row.payload)
+        except Exception:
+            # 壞資料直接標作廢
+            db.execute(text("UPDATE device_pending_commands SET delivered_at = NOW() WHERE id = :id"),
+                       {"id": row.id})
+            continue
+
+        ok = await ws_manager.send_command(device.android_id, cmd)
+        if not ok:
+            # 當下又斷了，停止繼續 flush
+            break
+        db.execute(text("""
+            UPDATE device_pending_commands
+            SET delivered_at = NOW()
+            WHERE id = :id
+        """), {"id": row.id})
+        sent += 1
+
+    if sent:
+        db.commit()
+        logger.info(f"📤 [佇列補派] 設備 {device.android_id} 上線補送 {sent} 筆指令")
+    return sent
+
 @router.websocket("/ws/device/{android_id}")
 async def device_websocket(
     websocket: WebSocket, 
@@ -217,6 +318,12 @@ async def device_websocket(
     except Exception as e:
         ws_manager.disconnect(android_id, db)
         return
+
+    # 上線補派：把 Admin 於離線期間入佇列的指令（例如 force update）一次送出
+    try:
+        await flush_pending_commands(db, device)
+    except Exception as e:
+        logger.error(f"⚠️ [佇列補派失敗] {android_id}: {e}")
     
     try:
         while True:
@@ -225,15 +332,16 @@ async def device_websocket(
             if not data or not data.strip():
                 continue
 
-            logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
-            connected_list = list(ws_manager.active_devices.keys())
-            # logger.info(f"📋 [MDM WS 當前連線清單] 列表: {connected_list}")
-
             try:
                 message = json.loads(data)
             except json.JSONDecodeError:
+                logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
                 await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
                 continue
+
+            # 心跳 ping 太頻繁，略過日誌；其他 type 照常輸出
+            if message.get("type") != "ping":
+                logger.info(f"📥 [MDM WS 收到資料] 來自設備: {android_id} | 內容: {data}")
 
             if message.get("type") == "ping":
                 await websocket.send_json({"type": "pong", "status": "success", "message": ""})

@@ -354,19 +354,57 @@ async def upload_apk(
     db.refresh(version)
     
     logger.info(f"Uploaded version {version_name} for {app.app_id}/{branch.branch_name}")
-    
-    # Notify connected clients via WebSocket
-    # from .websocket import notify_update_available
-    # await notify_update_available(app.app_id, branch.branch_name, {
-    #     "version_code": version_code,
-    #     "version_name": version_name,
-    #     "force_update": force_update
-    # })
-    
+
+    # 強制更新：對所有裝有此 App 且版本較舊的裝置，立即派送 AC_app_install。
+    # 線上裝置走 WS 直推；離線裝置落 device_pending_commands，下次連線自動補送。
+    force_pushed = 0
+    force_queued = 0
+    if force_update:
+        try:
+            from sqlalchemy import text as _sql_text
+            from .v2.mdm import queue_or_send_command
+            from ..core.utils import get_hkt_now as _now
+
+            # 找出此 App 現役安裝、且版本 < 新版的裝置
+            target_rows = db.execute(_sql_text("""
+                SELECT d.id AS device_id, d.android_id, d.is_online, dia.current_version_code
+                FROM device_installed_apps dia
+                JOIN devices d ON d.id = dia.device_id
+                WHERE dia.application_id = :app_pk
+                  AND (dia.current_version_code IS NULL OR dia.current_version_code < :new_vc)
+                  AND d.is_active = 1
+            """), {"app_pk": application_id, "new_vc": version_code}).fetchall()
+
+            logger.info(f"🚀 [Force Update] {app.app_id} v{version_code} → {len(target_rows)} 台候選裝置")
+
+            for row in target_rows:
+                device = db.query(Device).filter(Device.id == row.device_id).first()
+                if not device:
+                    continue
+                payload = {
+                    "task_id": f"force_{int(_now().timestamp()*1000)}_{device.id}",
+                    "action": "AC_app_install",
+                    "target_app": app.app_id,
+                    "branch_name": branch.branch_name,
+                    "version_code": version_code,
+                    "force_update": True,
+                }
+                ok = await queue_or_send_command(db, device, payload)
+                if ok:
+                    force_pushed += 1
+                else:
+                    force_queued += 1
+
+            logger.info(f"✅ [Force Update] 完成：即時推送 {force_pushed} 台、離線佇列 {force_queued} 台")
+        except Exception as e:
+            logger.error(f"[Force Update] 推播流程發生錯誤: {e}")
+
     return {
         "message": "APK uploaded successfully",
         "version": version,
-        "file_hash": file_hash
+        "file_hash": file_hash,
+        "force_update_pushed": force_pushed,
+        "force_update_queued": force_queued,
     }
 
 @router.get("/versions", response_model=List[VersionSchema])
