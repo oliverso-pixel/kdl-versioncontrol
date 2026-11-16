@@ -81,39 +81,7 @@ const ApplicationManagement = () => {
           新增應用程式
         </button>
       </div>
-
-      {/*<div className="bg-white shadow overflow-hidden sm:rounded-md">
-        <ul className="divide-y divide-gray-200">
-          {applications.map((app) => (
-            <li key={app.id} className="px-4 py-4 sm:px-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Package className="h-10 w-10 text-gray-400 mr-4" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{app.name}</p>
-                    <p className="text-sm text-gray-500">{app.app_id}</p>
-                    {app.description && (
-                      <p className="text-sm text-gray-500 mt-1">{app.description}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  {app.is_active ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      啟用
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                      停用
-                    </span>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>*/}
-
+      
       <div className="bg-white shadow overflow-hidden sm:rounded-md">
         <ul className="divide-y divide-gray-200">
           {applications.map((app) => (
@@ -139,19 +107,21 @@ const ApplicationManagement = () => {
                       停用
                     </span>
                   )}
-                  <button
-                    onClick={() => handleDeleteClick(app)}
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {app.app_id !== 'com.kowloondairy.mdmapp' && (
+                    <button
+                      onClick={() => handleDeleteClick(app)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </li>
           ))}
         </ul>
       </div>
-
+      
       {/* 新增應用程式 Modal */}
       {showCreateModal && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
@@ -228,16 +198,16 @@ const ApplicationManagement = () => {
                       setNewApp({ app_id: '', name: '', description: '' });
                     }}
                     className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                  >
+                    >
                     取消
-                  </button>
+                    </button>
                 </div>
               </form>
             </div>
           </div>
         </div>
       )}
-
+      
       {/* 刪除確認 Modal */}
       {showDeleteModal && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
@@ -312,8 +282,6 @@ const ApplicationManagement = () => {
           </div>
         </div>
       )}
-
-      {/* Modal 程式碼省略，可從之前的程式碼複製 */}
     </div>
   );
 };

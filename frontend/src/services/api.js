@@ -12,6 +12,11 @@ class ApiService {
     localStorage.setItem('token', token);
   }
 
+  // 取得後端 API 版本與執行環境 (pro / dev)，供 Sidebar 顯示
+  async getMeta() {
+    return this.request('/api/meta', { skipAuth: true });
+  }
+
   clearToken() {
     this.token = null;
     localStorage.removeItem('token');

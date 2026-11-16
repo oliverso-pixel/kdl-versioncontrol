@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime, time, date
 from ...database import get_db, get_mssql_db
+from ...config import settings
 from ...core.security import verify_token, verify_api_key
 from ...core.utils import get_hkt_now
 from ...core.redis_manager import redis_manager
@@ -460,7 +461,9 @@ async def device_websocket(
                         logger.error(f"解析休眠時間錯誤: {e}")
                         is_sleeping = False
 
-                    if not is_sleeping and message.get("lat") and message.get("lng"):
+                    if settings.IS_DEV:
+                        logger.debug(f"[dev] 跳過 MSSQL 寫入 (status_update) | {android_id}")
+                    elif not is_sleeping and message.get("lat") and message.get("lng"):
                         mssql_db = next(get_mssql_db())
                         if mssql_db:
                             try:
@@ -639,7 +642,9 @@ async def device_websocket(
                         logger.error(f"解析休眠時間錯誤: {e}")
                         is_sleeping = False
 
-                    if not is_sleeping and history_rows:
+                    if settings.IS_DEV:
+                        logger.debug(f"[dev] 跳過 MSSQL 寫入 (history batch) | {android_id}")
+                    elif not is_sleeping and history_rows:
                         mssql_db = next(get_mssql_db())
                         if mssql_db:
                             try:

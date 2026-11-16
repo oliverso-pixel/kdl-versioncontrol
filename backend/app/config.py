@@ -7,6 +7,14 @@ from urllib.parse import quote_plus
 load_dotenv()
 
 class Settings(BaseSettings):
+    API_VERSION: str = os.getenv("API_VERSION", "1.0.0")
+    # 環境標記：pro（正式）/ dev（開發）
+    # dev 場會停寫 MSSQL；兩場皆正常寫 MySQL
+    ENV: str = os.getenv("ENV", "pro").lower()
+
+    @property
+    def IS_DEV(self) -> bool:
+        return self.ENV == "dev"
 
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
     DB_PORT: int = int(os.getenv("DB_PORT", 3306))
@@ -65,13 +73,13 @@ class Settings(BaseSettings):
     GEOCODE_BACKFILL_INTERVAL: int = int(os.getenv("GEOCODE_BACKFILL_INTERVAL", 300))
     GEOCODE_BACKFILL_BATCH: int = int(os.getenv("GEOCODE_BACKFILL_BATCH", 100))
 
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "http://10.10.205.205:3000",
-        "http://10.10.205.205:3001",
-        "http://10.10.205.205"
-    ]
+    # CORS_ORIGINS: List[str] = [
+    #     "http://localhost:3000",
+    #     "http://localhost:8080",
+    #     "http://10.10.205.205:3000",
+    #     "http://10.10.205.205:3001",
+    #     "http://10.10.205.205"
+    # ]
     
     class Config:
         case_sensitive = True

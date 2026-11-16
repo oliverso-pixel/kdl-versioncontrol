@@ -35,7 +35,7 @@ ensure_directory_exists("./backups")
 app = FastAPI(
     title="Version Control Center",
     description="Central version control system for Android applications",
-    version="1.1.1",
+    version=settings.API_VERSION,
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
@@ -108,15 +108,23 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "version": "1.0.0",
+        "version": settings.API_VERSION,
         "timestamp": get_hkt_now().isoformat()
+    }
+
+@app.get("/api/meta")
+async def get_meta():
+    """供前端顯示：目前 API 版本與執行環境 (pro / dev)"""
+    return {
+        "api_version": settings.API_VERSION,
+        "env": settings.ENV,
     }
 
 @app.get("/")
 async def root():
     return {
         "message": "Version Control Center API",
-        "version": "1.0.0",
+        "version": settings.API_VERSION,
         "documentation": "/api/docs",
         "endpoints": {
             "auth": "/api/auth/token",

@@ -18,13 +18,24 @@ import StoreManagement from './components/Store/StoreManagement';
 import UserManagement from './components/User/UserManagement';
 import AutoLogoutProvider from './components/AutoLogoutProvider';
 import './App.css';
-import AuthUser from './models/AuthUser'; 
+import AuthUser from './models/AuthUser';
+import api from './services/api';
+import { version as FRONTEND_VERSION } from '../package.json';
 
 function MainLayout({ setIsAuthenticated }) {
   const [currentView, setCurrentView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [apiMeta, setApiMeta] = useState({ api_version: null, env: null });
   const user = AuthUser.fromStorage();
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMeta()
+      .then(meta => { if (!cancelled) setApiMeta(meta); })
+      .catch(() => { /* 取不到就留空；Sidebar 會 fallback 顯示 "-" */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleLogout = () => {
     AuthUser.logoutAndClear();
@@ -100,8 +111,27 @@ function MainLayout({ setIsAuthenticated }) {
           </div>
 
           {sidebarOpen && user.userName && (
-            <div className="px-4 py-2 text-xs text-gray-400 border-b border-gray-700">
-              當前用戶: {user.userName} ({user.departmentCode || '無部門'})
+            <div className="px-4 py-2 text-xs text-gray-400 border-b border-gray-700 space-y-1">
+              <div>
+                當前用戶: {user.userName} ({user.departmentCode || '無部門'})
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-gray-500">API</span>
+                <span className="text-gray-300 font-mono">v{apiMeta.api_version || '-'}</span>
+                {apiMeta.env && (
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                    apiMeta.env === 'dev'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  }`}>
+                    {apiMeta.env.toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">UI</span>
+                <span className="text-gray-300 font-mono">v{FRONTEND_VERSION}</span>
+              </div>
             </div>
           )}
 
