@@ -73,13 +73,13 @@ class Settings(BaseSettings):
     GEOCODE_BACKFILL_INTERVAL: int = int(os.getenv("GEOCODE_BACKFILL_INTERVAL", 300))
     GEOCODE_BACKFILL_BATCH: int = int(os.getenv("GEOCODE_BACKFILL_BATCH", 100))
 
-    # CORS_ORIGINS: List[str] = [
-    #     "http://localhost:3000",
-    #     "http://localhost:8080",
-    #     "http://10.10.205.205:3000",
-    #     "http://10.10.205.205:3001",
-    #     "http://10.10.205.205"
-    # ]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://10.10.205.205:3000",
+        "http://10.10.205.205:3001",
+        "http://10.10.205.205"
+    ]
     
     class Config:
         case_sensitive = True

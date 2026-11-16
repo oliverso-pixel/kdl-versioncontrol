@@ -20,7 +20,9 @@ import AutoLogoutProvider from './components/AutoLogoutProvider';
 import './App.css';
 import AuthUser from './models/AuthUser';
 import api from './services/api';
-import { version as FRONTEND_VERSION } from '../package.json';
+import pkg from '../package.json';
+
+const FRONTEND_VERSION = pkg.version;
 
 function MainLayout({ setIsAuthenticated }) {
   const [currentView, setCurrentView] = useState('dashboard');
