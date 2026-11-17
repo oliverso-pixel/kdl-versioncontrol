@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
-from datetime import datetime, time, date
+from datetime import datetime, time, date, timedelta
 from ...database import get_db, get_mssql_db
 from ...config import settings
 from ...core.security import verify_token, verify_api_key
@@ -303,12 +303,21 @@ async def device_websocket(
 
     await ws_manager.connect(websocket, android_id, db)
 
-    await redis_manager.set_device_online(android_id, {
-        "device_model": device.device_model,
-        "os_version": device.os_version
-    })
+
+    def _cleanup() -> None:
+        # 任何原因離開 handler 都要清走這條連線，否則設備會一直顯示在線
+        try:
+            db.rollback()  # DB 出錯後 session 可能已壞，先 rollback 才能寫 is_online = 0
+            ws_manager.disconnect(android_id, db, websocket)
+        except Exception:
+            logger.exception(f"❌ [MDM WS] 清理連線失敗 | 設備: {android_id}")
+            ws_manager.disconnect(android_id, None, websocket)
 
     try:
+        await redis_manager.set_device_online(android_id, {
+            "device_model": device.device_model,
+            "os_version": device.os_version
+        })
         await websocket.send_json({
             "type": "connected",
             "status": "success",
@@ -316,15 +325,14 @@ async def device_websocket(
             "device_model": device.device_model,
             "timestamp": get_hkt_now().isoformat()
         })
-    except Exception as e:
-        ws_manager.disconnect(android_id, db)
+    except Exception:
+        logger.exception(f"❌ [MDM WS] 連線初始化失敗 | 設備: {android_id}")
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+        _cleanup()
         return
-
-    # 上線補派：把 Admin 於離線期間入佇列的指令（例如 force update）一次送出
-    try:
-        await flush_pending_commands(db, device)
-    except Exception as e:
-        logger.error(f"⚠️ [佇列補派失敗] {android_id}: {e}")
     
     try:
         while True:
@@ -406,16 +414,20 @@ async def device_websocket(
                 # (這樣其他裝置的 WS 封包仍可在 DB IO 期間被處理)
                 def _persist_single_sync() -> None:
                     if not device.gps_time or gps_time > device.gps_time:
-                        device.battery_level = message.get("battery")
-                        device.latitude = message.get("lat")
-                        device.longitude = message.get("lng")
-                        device.route = route
-                        device.altitude = altitude
-                        device.address = address
-                        device.satellites = satellites
-                        device.gps_time = gps_time
-                        device.boot_time = boot_time
-                        device.location_source = location_source
+                        if message.get("battery") is not None:
+                            device.battery_level = message.get("battery")
+                        if boot_time is not None:
+                            device.boot_time = boot_time
+                        # 沒定位 (lat/lng 為 null) 時 GPStime 只是報告時間：保留最後已知位置
+                        if message.get("lat") is not None and message.get("lng") is not None:
+                            device.latitude = message.get("lat")
+                            device.longitude = message.get("lng")
+                            device.route = route
+                            device.altitude = altitude
+                            device.address = address
+                            device.satellites = satellites
+                            device.gps_time = gps_time
+                            device.location_source = location_source
 
                     device.last_check_time = get_hkt_now()
 
@@ -572,30 +584,36 @@ async def device_websocket(
                         "client_address": it.get("address", it.get("Address")),
                     })
 
-                # 伺服器端 coalescing：只用「最新 GPStime」那筆去 UPDATE devices
+                # 伺服器端 coalescing：電量用「最新 GPStime」那筆；
+                # 位置只用「最新一筆有定位」的，沒定位的報告不可清空最後已知位置
                 latest = max(parsed_items, key=lambda x: x["gps_time"])
+                fixed_items = [p for p in parsed_items if p["lat"] is not None and p["lng"] is not None]
+                latest_fix = max(fixed_items, key=lambda x: x["gps_time"]) if fixed_items else None
 
-                # 只對 latest 做一次 reverse geocode (避免 N 次外部呼叫)
+                # 只對 latest_fix 做一次 reverse geocode (避免 N 次外部呼叫)
                 latest_address = None
-                if latest["lat"] and latest["lng"]:
-                    latest_address = await reverse_geocode_zh(latest["lat"], latest["lng"])
-                if not latest_address:
-                    latest_address = latest["client_address"]
+                if latest_fix is not None:
+                    latest_address = await reverse_geocode_zh(latest_fix["lat"], latest_fix["lng"])
+                    if not latest_address:
+                        latest_address = latest_fix["client_address"]
 
                 # 將所有同步 DB 寫入丟去 threadpool，避免阻塞 WS 的 event loop
                 # (這是本次重點：其他裝置的 WS 封包能在 DB IO 期間繼續被處理)
                 def _persist_batch_sync() -> int:
                     if not device.gps_time or latest["gps_time"] > device.gps_time:
-                        device.battery_level = latest["battery"]
-                        device.latitude = latest["lat"]
-                        device.longitude = latest["lng"]
-                        device.route = latest["route"]
-                        device.altitude = latest["altitude"]
+                        if latest["battery"] is not None:
+                            device.battery_level = latest["battery"]
+                        if latest["boot_time"] is not None:
+                            device.boot_time = latest["boot_time"]
+                    if latest_fix is not None and (not device.gps_time or latest_fix["gps_time"] > device.gps_time):
+                        device.latitude = latest_fix["lat"]
+                        device.longitude = latest_fix["lng"]
+                        device.route = latest_fix["route"]
+                        device.altitude = latest_fix["altitude"]
                         device.address = latest_address
-                        device.satellites = latest["satellites"]
-                        device.gps_time = latest["gps_time"]
-                        device.boot_time = latest["boot_time"]
-                        device.location_source = latest["location_source"]
+                        device.satellites = latest_fix["satellites"]
+                        device.gps_time = latest_fix["gps_time"]
+                        device.location_source = latest_fix["location_source"]
 
                     device.last_check_time = get_hkt_now()
 
@@ -930,8 +948,17 @@ async def device_websocket(
                 device.last_check_time = get_hkt_now()
                 db.commit()
 
+
     except WebSocketDisconnect:
-        ws_manager.disconnect(android_id, db, websocket)
+        pass
+    except Exception:
+        logger.exception(f"❌ [MDM WS] handler 異常，關閉連線 | 設備: {android_id}")
+        try:
+            await websocket.close(code=1011)  # 讓 App 知道要重連
+        except Exception:
+            pass
+    finally:
+        _cleanup()
 
 @router.post("/admin/devices/{android_id}/command")
 async def send_admin_command(
@@ -1222,19 +1249,41 @@ async def get_device_installed_apps(android_id: str, db: Session = Depends(get_d
     return [{"app_id": row.app_id, "name": row.name, "version_code": row.current_version_code, "installed_at": row.installed_at} for row in apps]
 
 @router.get("/admin/devices/{android_id}/location-history")
-async def get_device_location_history(android_id: str, limit: int = 50, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+async def get_device_location_history(
+    android_id: str,
+    limit: int = 50,
+    target_date: Optional[date] = Query(None, alias="date"),
+    db: Session = Depends(get_db),
+    token: dict = Depends(verify_token)
+):
+    """不帶 date：最新 limit 筆；帶 date=YYYY-MM-DD：該日全部軌跡 (上限 1000 筆)，由早到晚。
+    時間以 gps_time (實際定位時刻) 為準，沒有才用 created_at，補送的離線點才會落在正確日期。"""
     device = db.query(Device).filter(Device.android_id == android_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-        
-    query = text("""
-        SELECT latitude, longitude, battery_level, created_at 
-        FROM device_location_history 
-        WHERE device_id = :d_id 
-        ORDER BY created_at DESC LIMIT :limit
-    """)
-    history = db.execute(query, {"d_id": device.id, "limit": limit}).fetchall()
-    return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.created_at} for row in history]
+
+    if target_date is not None:
+        day_start = datetime.combine(target_date, time.min)
+        query = text("""
+            SELECT latitude, longitude, battery_level, COALESCE(gps_time, created_at) AS point_time
+            FROM device_location_history
+            WHERE device_id = :d_id
+              AND COALESCE(gps_time, created_at) >= :day_start
+              AND COALESCE(gps_time, created_at) < :day_end
+            ORDER BY point_time ASC LIMIT 1000
+        """)
+        params = {"d_id": device.id, "day_start": day_start, "day_end": day_start + timedelta(days=1)}
+    else:
+        query = text("""
+            SELECT latitude, longitude, battery_level, COALESCE(gps_time, created_at) AS point_time
+            FROM device_location_history
+            WHERE device_id = :d_id
+            ORDER BY created_at DESC LIMIT :limit
+        """)
+        params = {"d_id": device.id, "limit": limit}
+
+    history = db.execute(query, params).fetchall()
+    return [{"lat": float(row.latitude), "lng": float(row.longitude), "battery": row.battery_level, "time": row.point_time} for row in history]
 
 @router.get("/admin/devices/{android_id}/mssql-location-history")
 async def get_mssql_location_history(
@@ -1301,13 +1350,20 @@ async def get_all_devices_v2(db: Session = Depends(get_db), token: dict = Depend
             "longitude": float(d.longitude) if d.longitude else None,
             "is_active": bool(d.is_active),
             "last_check_time": d.last_check_time.isoformat() if d.last_check_time else None,
+            "boot_time": d.boot_time.isoformat() if d.boot_time else None,
+            "location_source": d.location_source,
             "notes": d.notes
         })
     return result
 
 # ----------------- Device App config ----------------- #
 @router.get("/admin/devices/{android_id}/configs/{app_id}")
-async def get_device_app_config(android_id: str, app_id: str, db: Session = Depends(get_db)):
+async def get_device_app_config(
+    android_id: str,
+    app_id: str,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token)
+):
 
     """[Web Panel] 取得指定設備的指定 App 設定"""
 
@@ -1324,8 +1380,9 @@ async def get_device_app_config(android_id: str, app_id: str, db: Session = Depe
 async def update_device_app_config(
     android_id: str, 
     target_app_id: str, 
-    config_data: dict, 
-    db: Session = Depends(get_db)
+    config_data: dict,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token)
 ):
     """[Web Panel] 修改設定並推播給線上設備"""
     

@@ -169,16 +169,29 @@ const DeviceMonitoringV2 = () => {
     setSelectedDevice(device);
     setLoadingDetails(true);
     try {
-      const [apps, history] = await Promise.all([
-        api.getDeviceInstalledApps(device.android_id),
-        api.getDeviceLocationHistory(device.android_id)
-      ]);
+      const apps = await api.getDeviceInstalledApps(device.android_id);
       setInstalledApps(apps);
-      setLocationHistory(history);
     } catch (err) {} finally {
       setLoadingDetails(false);
     }
   };
+
+  // 軌跡：有選日期就向後端要「該日全部」，否則要最新幾筆
+  // (以前只拿最新 50 筆再在前端按日期篩，舊日期永遠是空的)
+  const selectedAndroidId = selectedDevice?.android_id;
+  useEffect(() => {
+    if (!selectedAndroidId) return;
+    let cancelled = false;
+    // 用本地日期組 YYYY-MM-DD；toISOString() 會轉成 UTC，香港時間會差一天
+    const dateStr = selectedDate
+      ? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
+      : null;
+    setLocationHistory([]);
+    api.getDeviceLocationHistory(selectedAndroidId, dateStr)
+      .then((history) => { if (!cancelled) setLocationHistory(Array.isArray(history) ? history : []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedAndroidId, selectedDate]);
 
   // 🔥 新增：關閉控制中心 Modal 時，一併確保螢幕控制視窗關閉，避免殘留連線
   const closeDeviceDetails = () => {
@@ -370,14 +383,14 @@ const DeviceMonitoringV2 = () => {
               </span>
   <div className="inline-flex items-center gap-1 text-gray-600 font-bold" title="定位來源">
     <Navigation className="w-4 h-4 text-purple-500" />
-    <span>{LOCATION_SOURCE_LABELS[device.location_source] || device.location_source || '融合'}</span>
+    <span>{LOCATION_SOURCE_LABELS[device.location_source] || device.location_source || '—'}</span>
   </div>
   <div className="inline-flex items-center gap-1 text-gray-600" title="裝置開機時間">
     <Power className="w-4 h-4 text-blue-500" />
     <span>
       {device.boot_time
         ? new Date(device.boot_time).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : '2026/02/01 12:00:00'}
+        : '—'}
     </span>
   </div>
             </div>
@@ -544,14 +557,6 @@ const DeviceMonitoringV2 = () => {
                       if (!date) return;
                       setSelectedDate(date);
                     }}
-                    onSelect={(date) => {
-                      const hasData = Array.isArray(locationHistory) && locationHistory.some(
-                        (loc) => new Date(loc.time).toDateString() === date.toDateString()
-                      );
-                      if (!hasData) {
-                        alert("該日期尚無歷史軌跡紀錄！");
-                      }
-                    }}
                     dateFormat="yyyy-MM-dd"
                     placeholderText="查詢日期"
                     className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
@@ -562,14 +567,6 @@ const DeviceMonitoringV2 = () => {
                         const parsedDate = new Date(inputValue);
 
                         if (!isNaN(parsedDate.getTime())) {
-                          const hasData = Array.isArray(locationHistory) && locationHistory.some(
-                            (loc) => new Date(loc.time).toDateString() === parsedDate.toDateString()
-                          );
-
-                          if (!hasData) {
-                            alert("該日期尚無歷史軌跡紀錄！");
-                          }
-
                           setSelectedDate(parsedDate);
                         }
 

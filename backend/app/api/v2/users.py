@@ -84,10 +84,14 @@ async def get_departments(
 
 @router.post("/admin/users")
 async def create_user(data: dict, db: Session = Depends(get_db), token: dict = Depends(verify_token)):
+    # 只有超級管理員或高級管理員 (level 3) 才能建立帳號
+    current_operator_is_super = bool(token.get("is_superuser", False))
+    if not current_operator_is_super and int(token.get("permission_level", 0)) < 3:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="權限不足")
+
     # 只有超級管理員才能建立另一個超級管理員
     target_is_superuser = bool(data.get("is_superuser", False))
     if target_is_superuser:
-        current_operator_is_super = bool(token.get("is_superuser", False))
         if not current_operator_is_super:
             raise HTTPException(
                 status_code=403, 
@@ -110,7 +114,15 @@ async def create_user(data: dict, db: Session = Depends(get_db), token: dict = D
 
     # 區分超級管理員與一般專案管理員的寫入規則
     final_dept_code = None if target_is_superuser else data.get("dept_code")
-    final_perm_level = 3 if target_is_superuser else int(data.get("permission_level", 2))
+    if target_is_superuser:
+        final_perm_level = 3
+    else:
+        try:
+            final_perm_level = int(data.get("permission_level", 2))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="invalidPermissionLevel")
+        if final_perm_level not in (1, 2, 3):
+            raise HTTPException(status_code=400, detail="invalidPermissionLevel")
 
     # 新增至資料庫
     new_user = AdminUser(

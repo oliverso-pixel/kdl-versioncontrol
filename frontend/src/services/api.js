@@ -286,10 +286,10 @@ class ApiService {
   async getDeviceInstalledApps(androidId) {
     return this.request(`/api/v2/admin/devices/${androidId}/installed-apps`);
   }
-  async getDeviceLocationHistory(androidId) {
-    return this.request(`/api/v2/admin/devices/${androidId}/location-history`);
+  async getDeviceLocationHistory(androidId, date = null) {
+    const query = date ? `?date=${encodeURIComponent(date)}` : '';
+    return this.request(`/api/v2/admin/devices/${androidId}/location-history${query}`);
   }
-
   // System settings
   async getSystemSettings() {
     return this.request('/api/admin/settings');
