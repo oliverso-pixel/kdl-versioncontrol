@@ -241,12 +241,14 @@ const fetchApps = async () => {
             >
               <Edit className="w-4 h-4 mr-2"/> 修改資訊
             </button>
-            <button 
-              onClick={handleDeleteApp}
-              className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded flex items-center transition"
-            >
-              <Trash2 className="w-4 h-4 mr-2"/> 刪除程式
-            </button>
+            {appDetails.app_id !== 'com.kowloondairy.mdmapp' && (
+              <button 
+                onClick={handleDeleteApp}
+                className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded flex items-center transition"
+              >
+                <Trash2 className="w-4 h-4 mr-2"/> 刪除程式
+              </button>
+            )}
           </div>
         </div>
 

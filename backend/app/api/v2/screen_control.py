@@ -20,6 +20,7 @@ from ...schemas.screen_control import (
 from ...core.security import verify_token
 from ...core.utils import get_hkt_now
 from ...core.redis_manager import redis_manager
+from ...core.device_commands import SUPERUSER_ONLY_ACTIONS
 from ...config import settings
 from .mdm import ws_manager
 
@@ -523,6 +524,10 @@ async def screen_stream_websocket(
                     "task_id": f"ctrl_{int(get_hkt_now().timestamp()*1000)}",
                     **msg.get("params", {})
                 }
+                # action/params 由前端自訂：重設鎖定畫面密碼只能走 /command
+                # （superuser 檢查 + 密碼不落地），不可從螢幕控制通道繞過
+                if command.get("action") in SUPERUSER_ONLY_ACTIONS:
+                    continue
                 await redis_manager.push_command(android_id, command)
                 await ws_manager.send_command(android_id, command)
             

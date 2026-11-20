@@ -12,6 +12,7 @@ from ...core.security import verify_token, verify_api_key
 from ...core.utils import get_hkt_now
 from ...core.redis_manager import redis_manager
 from ...core.geocoder import reverse_geocode_zh
+from ...core.device_commands import CommandRejected, SUPERUSER_ONLY_ACTIONS, prepare_admin_command
 from ...models import Device, Application, Branch, Version, SystemSetting, UpdateLog
 import json
 import secrets
@@ -131,7 +132,12 @@ async def screen_control(
         "action": f"DC_{action}",
         **params
     }
-    
+
+    # 這裡的 action/params 由呼叫端自訂：重設鎖定畫面密碼只能走 /command
+    # （那裡才有 superuser 檢查與遮蔽密碼的歷史紀錄），否則可從這裡繞過
+    if command.get("action") in SUPERUSER_ONLY_ACTIONS:
+        raise HTTPException(status_code=403, detail="This command must use the command endpoint")
+       
     success = await ws_manager.send_command(android_id, command)
     
     if not success:
@@ -144,6 +150,16 @@ async def screen_control(
 class DeviceWSManager:
     def __init__(self):
         self.active_devices: Dict[str, WebSocket] = {}
+        # Reset Ready（可否遠端重設鎖定畫面密碼），由裝置在 status_update 回報。
+        # 刻意只放記憶體、不加 DB 欄位：本專案沒有 migration，漏跑 ALTER TABLE 會弄壞所有裝置查詢。
+        # 伺服器重啟後會暫時顯示「未就緒」，直到各裝置下一次回報。
+        self.reset_ready: Dict[str, bool] = {}
+        # 加密新密碼用：裝置回報的公開鎖匙與一次性號碼 (nonce)。同樣只放記憶體。
+        # 號碼用過即刪，要等裝置下一次回報新號碼才能再重設（防止重播）。
+        self.reset_public_key: Dict[str, str] = {}
+        self.reset_nonce: Dict[str, str] = {}
+        # Current Wi-Fi：裝置目前連著的 Wi-Fi 名稱（None = 不是 Wi-Fi 或讀不到）。同樣只放記憶體。
+        self.current_wifi: Dict[str, Optional[str]] = {}
 
     async def connect(self, websocket: WebSocket, android_id: str, db: Session):
         await websocket.accept()
@@ -503,6 +519,17 @@ async def device_websocket(
                                 mssql_db.close()
 
                 await run_in_threadpool(_persist_single_sync)
+                 # Reset Ready：舊版 App 不帶此欄位 → 維持「未就緒」。
+                # 補送的舊紀錄 (resent) 也不帶，所以不會用過期狀態覆寫。
+                if isinstance(message.get("reset_ready"), bool):
+                    ws_manager.reset_ready[android_id] = message["reset_ready"]
+                if isinstance(message.get("reset_public_key"), str) and isinstance(message.get("reset_nonce"), str):
+                    ws_manager.reset_public_key[android_id] = message["reset_public_key"]
+                    ws_manager.reset_nonce[android_id] = message["reset_nonce"]
+                # Current Wi-Fi：舊版 App 與補送的舊紀錄不帶此欄位 → 不更新
+                if "wifi_ssid" in message and isinstance(message["wifi_ssid"], (str, type(None))):
+                    ws_manager.current_wifi[android_id] = message["wifi_ssid"]
+
 
                 await websocket.send_json({
                     "type": "status_update_ack",
@@ -972,6 +999,20 @@ async def send_admin_command(
     device = db.query(Device).filter(Device.android_id == android_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+    # 規則檢查（誰可以發、格式），並取得一份「可安全寫入歷史」的副本（密碼/密鑰已遮蔽）
+    uses_nonce = command.get("action") in SUPERUSER_ONLY_ACTIONS
+    try:
+        command, history_command = prepare_admin_command(command, token_payload, {
+            "android_id": android_id,
+            "public_key": ws_manager.reset_public_key.get(android_id),
+            "nonce": ws_manager.reset_nonce.get(android_id),
+            "current_wifi": ws_manager.current_wifi.get(android_id),
+        })
+    except CommandRejected as rejected:
+        raise HTTPException(status_code=rejected.status_code, detail=rejected.detail)
+    if uses_nonce:
+        # 一次性號碼只用一次；裝置用完會換新的並在下一次 status_update 回報
+        ws_manager.reset_nonce.pop(android_id, None)
 
     try:
         success = await ws_manager.send_command(android_id, command)
@@ -986,7 +1027,7 @@ async def send_admin_command(
     status = "sent" if success else "offline_failed"
     result_data = {
         "status": status, 
-        "command_payload": command,
+        "command_payload": history_command,
         "message": "指令已發送至設備" if success else "設備離線，指令發送失敗"
     }
     
@@ -1350,6 +1391,17 @@ async def get_all_devices_v2(db: Session = Depends(get_db), token: dict = Depend
             "longitude": float(d.longitude) if d.longitude else None,
             "is_active": bool(d.is_active),
             "last_check_time": d.last_check_time.isoformat() if d.last_check_time else None,
+            "reset_ready": (
+                ws_manager.reset_ready.get(d.android_id, False)
+                and d.android_id in ws_manager.reset_public_key
+                and d.android_id in ws_manager.reset_nonce
+            ),
+                        # 可否加密送出密碼（Switch Wi-Fi 用；不需要 Reset Ready）
+            "can_seal": (
+                d.android_id in ws_manager.reset_public_key
+                and d.android_id in ws_manager.reset_nonce
+            ),
+            "current_wifi": ws_manager.current_wifi.get(d.android_id),
             "boot_time": d.boot_time.isoformat() if d.boot_time else None,
             "location_source": d.location_source,
             "notes": d.notes

@@ -1,6 +1,6 @@
 // frontend/src/components/Devices/DeviceMonitoring.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation, Clock } from 'lucide-react';
+import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation, Clock, Lock, Wifi } from 'lucide-react';
 import api from '../../services/api';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -58,6 +58,14 @@ const DeviceMonitoringV2 = () => {
 
   const [showScreenControl, setShowScreenControl] = useState(false);
 
+  // 重設鎖定畫面密碼 (Reset Lock Screen Password)：只有 superuser 可用，後端也會再檢查一次
+  const isSuperuser = localStorage.getItem('isSuperuser') === 'true';
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [newLockPassword, setNewLockPassword] = useState('');
+  const [showSwitchWifi, setShowSwitchWifi] = useState(false);
+  const [wifiName, setWifiName] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('')
+  
   useEffect(() => {
     fetchDevices();
     fetchStoreApps();
@@ -196,6 +204,11 @@ const DeviceMonitoringV2 = () => {
   // 🔥 新增：關閉控制中心 Modal 時，一併確保螢幕控制視窗關閉，避免殘留連線
   const closeDeviceDetails = () => {
     setShowScreenControl(false);
+    setShowResetPassword(false);
+    setNewLockPassword('');
+    setShowSwitchWifi(false);
+    setWifiName('');
+    setWifiPassword('');
     setSelectedDevice(null);
   };
 
@@ -208,6 +221,64 @@ const DeviceMonitoringV2 = () => {
       alert('✅ 指令已送出');
     } catch (err) {
       alert('❌ 發送失敗，設備可能處於離線狀態');
+    }
+  };
+
+  const closeSwitchWifi = () => {
+    setShowSwitchWifi(false);
+    setWifiName('');
+    setWifiPassword('');   // 密碼不留在畫面狀態裡
+  };
+
+  // 與後端 device_commands.py 的規則一致：名稱 1 到 32 bytes；密碼留空或 8 到 63 個半形字元
+  const wifiNameBytes = new TextEncoder().encode(wifiName).length;
+  const wifiNameOk = wifiNameBytes >= 1 && wifiNameBytes <= 32;
+  const wifiPasswordOk = wifiPassword === '' || /^[ -~]{8,63}$/.test(wifiPassword);
+
+  const handleSwitchWifi = async () => {
+    if (!wifiNameOk || !wifiPasswordOk) return;
+    const label = selectedDevice.notes || selectedDevice.device_model || selectedDevice.android_id;
+    if (!window.confirm(`確定要把設備「${label}」(${selectedDevice.android_id}) 轉去 Wi-Fi「${wifiName}」嗎？\n設備會暫時離線。如果在新 Wi-Fi 上連不到後台，約 90 秒後會自動轉回原本的 Wi-Fi。`)) return;
+    try {
+      await api.sendDeviceCommandV2(selectedDevice.android_id, {
+        action: 'DC_switch_wifi',
+        task_id: `task_${Date.now()}`,
+        target_app: 'com.kowloondairy.mdmapp',
+        ssid: wifiName,
+        wifi_password: wifiPassword,
+      });
+      closeSwitchWifi();
+      alert('✅ 指令已送出。設備會暫時離線，約 2 分鐘內重新上線；屆時「Wi-Fi」會顯示結果（新名稱 = 成功，舊名稱 = 已轉回）。');
+    } catch (err) {
+      const data = err.response?.data || {};
+      alert(`❌ 轉 Wi-Fi 失敗：${data.detail || data.message || '設備可能處於離線狀態'}`);
+    }
+  };
+
+  const closeResetPassword = () => {
+    setShowResetPassword(false);
+    setNewLockPassword('');   // 密碼不留在畫面狀態裡
+  };
+
+  const handleResetLockScreenPassword = async () => {
+    if (!/^[0-9]{4,8}$/.test(newLockPassword)) {
+      alert('密碼必須是 4 到 8 位數字');
+      return;
+    }
+    const label = selectedDevice.notes || selectedDevice.device_model || selectedDevice.android_id;
+    if (!window.confirm(`確定要把設備「${label}」(${selectedDevice.android_id}) 的鎖定畫面密碼改為 ${newLockPassword} 嗎？\n設備會立即鎖定，之後必須用新密碼解鎖。`)) return;
+    try {
+      await api.sendDeviceCommandV2(selectedDevice.android_id, {
+        action: 'DC_reset_password',
+        task_id: `task_${Date.now()}`,
+        target_app: 'com.kowloondairy.mdmapp',
+        new_password: newLockPassword,
+      });
+      closeResetPassword();
+      alert('✅ 指令已送出。設備會立即鎖定，請用新密碼解鎖確認。');
+    } catch (err) {
+      const data = err.response?.data || {};
+      alert(`❌ 重設失敗：${data.detail || data.message || '設備可能處於離線狀態'}`);
     }
   };
 
@@ -262,6 +333,24 @@ const DeviceMonitoringV2 = () => {
 
   const isOnline = selectedDevice?.is_online || false;
   const btnDisabledClass = !isOnline ? "opacity-50 cursor-not-allowed filter grayscale" : "hover:-translate-y-0.5 shadow-sm";
+
+    // Reset Ready 取自每 10 秒刷新的清單，而不是開啟 Modal 當下的快照
+  const resetReady = !!allDevices.find(d => d.android_id === selectedDevice?.android_id)?.reset_ready;
+  const canResetPassword = isOnline && resetReady && isSuperuser;
+  const resetPasswordBlockedReason =
+    !isSuperuser ? '只有超級管理員可以重設密碼' :
+    !isOnline ? '設備離線中' :
+    !resetReady ? '尚未就緒：請先在設備上用現有密碼解鎖一次（或 App 版本過舊）' : '';
+
+      // Current Wi-Fi 與「可否加密送出」同樣取自每 10 秒刷新的清單
+  const liveDevice = allDevices.find(d => d.android_id === selectedDevice?.android_id);
+  const currentWifi = liveDevice?.current_wifi || null;
+  const canSeal = !!liveDevice?.can_seal;
+  const canSwitchWifi = isOnline && canSeal && isSuperuser;
+  const switchWifiBlockedReason =
+    !isSuperuser ? '只有超級管理員可以轉 Wi-Fi' :
+    !isOnline ? '設備離線中' :
+    !canSeal ? '尚未就緒：等設備下一次回報狀態（最多 5 分鐘，或 App 版本過舊）' : '';
 
   const filteredHistory = locationHistory.filter((loc) => {
     const locDate = new Date(loc.time).toDateString();
@@ -381,6 +470,10 @@ const DeviceMonitoringV2 = () => {
                 <Battery className={`w-4 h-4 ${device.battery_level > 20 ? 'text-emerald-500' : 'text-red-500'}`} />
                 {device.battery_level !== null && device.battery_level !== undefined ? `${device.battery_level}%` : '-'}
               </span>
+              <span className="inline-flex items-center gap-1 text-gray-600 min-w-0" title="目前連著的 Wi-Fi（最多延遲 5 分鐘）">
+                <Wifi className="w-4 h-4 text-sky-500 shrink-0" />
+                <span className="truncate">{device.current_wifi || '—'}</span>
+              </span>
   <div className="inline-flex items-center gap-1 text-gray-600 font-bold" title="定位來源">
     <Navigation className="w-4 h-4 text-purple-500" />
     <span>{LOCATION_SOURCE_LABELS[device.location_source] || device.location_source || '—'}</span>
@@ -484,6 +577,11 @@ const DeviceMonitoringV2 = () => {
                       <p className="mt-3 text-xl font-semibold text-slate-900">{selectedDevice.battery_level ?? '-'}%</p>
                     </div>
                     <div className="bg-white p-4 rounded-[1.5rem] border border-slate-200 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Wi-Fi</p>
+                      <p className="mt-3 text-xl font-semibold text-slate-900 break-all">{currentWifi || '未知'}</p>
+                      {!currentWifi && <p className="mt-1 text-xs text-slate-500">不是用 Wi-Fi，或設備的定位已關閉</p>}
+                    </div>
+                    <div className="bg-white p-4 rounded-[1.5rem] border border-slate-200 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">已安裝App總數</p>
                       <p className="mt-3 text-xl font-semibold text-slate-900">{installedApps.length}</p>
                     </div>
@@ -497,6 +595,28 @@ const DeviceMonitoringV2 = () => {
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                       <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_restart')} className={`bg-red-50 text-red-700 hover:bg-red-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-red-200 shadow-sm transition ${btnDisabledClass}`}>
                         <RotateCcw className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">重啟</span>
+                      </button>
+                      <button
+                        disabled={!canResetPassword}
+                        title={resetPasswordBlockedReason}
+                        onClick={() => setShowResetPassword(true)}
+                        className={`bg-purple-50 text-purple-700 hover:bg-purple-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-purple-200 shadow-sm transition ${!canResetPassword ? "opacity-50 cursor-not-allowed filter grayscale" : "hover:-translate-y-0.5 shadow-sm"}`}
+                      >
+                        <Lock className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">重設鎖屏密碼</span>
+                        {isOnline && resetPasswordBlockedReason && (
+                          <span className="mt-1 text-[10px] leading-tight text-center text-gray-500">{resetPasswordBlockedReason}</span>
+                        )}
+                      </button>
+                      <button
+                        disabled={!canSwitchWifi}
+                        title={switchWifiBlockedReason}
+                        onClick={() => setShowSwitchWifi(true)}
+                        className={`bg-sky-50 text-sky-700 hover:bg-sky-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-sky-200 shadow-sm transition ${!canSwitchWifi ? "opacity-50 cursor-not-allowed filter grayscale" : "hover:-translate-y-0.5 shadow-sm"}`}
+                      >
+                        <Wifi className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">轉 Wi-Fi</span>
+                        {isOnline && switchWifiBlockedReason && (
+                          <span className="mt-1 text-[10px] leading-tight text-center text-gray-500">{switchWifiBlockedReason}</span>
+                        )}
                       </button>
                       <button disabled={!isOnline} onClick={() => handleRemoteCommand('sync_apps')} className={`bg-blue-50 text-blue-700 hover:bg-blue-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-blue-200 shadow-sm transition ${btnDisabledClass}`}>
                         <DownloadCloud className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">拉取更新</span>
@@ -520,6 +640,88 @@ const DeviceMonitoringV2 = () => {
                     </button>
                   </div>
 
+                  {showSwitchWifi && (
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+                      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+                        <h4 className="font-bold text-gray-800 mb-1">轉 Wi-Fi</h4>
+                        <p className="text-xs text-gray-500 mb-4 break-all">
+                          設備：{selectedDevice.notes || selectedDevice.device_model} ({selectedDevice.android_id})<br />
+                          目前 Wi-Fi：{currentWifi || '未知'}
+                        </p>
+                        <label className="block text-sm text-gray-700 mb-1" htmlFor="switch-wifi-name">Wi-Fi 名稱</label>
+                        <input
+                          id="switch-wifi-name"
+                          type="text"
+                          autoComplete="off"
+                          autoFocus
+                          value={wifiName}
+                          onChange={(e) => setWifiName(e.target.value)}
+                          className="w-full border border-gray-300 rounded p-2 text-sm focus:ring-sky-500"
+                        />
+                        {wifiName !== '' && !wifiNameOk && <p className="text-xs text-red-600 mt-1">名稱太長（中文字每個算 3 個字元，上限 32）</p>}
+                        {wifiName !== '' && wifiName === currentWifi && <p className="text-xs text-red-600 mt-1">設備已經連著這個 Wi-Fi</p>}
+                        <label className="block text-sm text-gray-700 mb-1 mt-3" htmlFor="switch-wifi-password">Wi-Fi 密碼</label>
+                        <input
+                          id="switch-wifi-password"
+                          type="text"
+                          autoComplete="off"
+                          maxLength={63}
+                          value={wifiPassword}
+                          onChange={(e) => setWifiPassword(e.target.value)}
+                          className="w-full border border-gray-300 rounded p-2 text-sm font-mono focus:ring-sky-500"
+                        />
+                        {!wifiPasswordOk && <p className="text-xs text-red-600 mt-1">密碼要 8 到 63 個半形字元</p>}
+                        <p className="text-xs text-gray-500 mt-2">
+                          密碼可以留空：沒有密碼的 Wi-Fi，或設備已經儲存過的 Wi-Fi。<br />
+                          在新 Wi-Fi 上連不到後台，設備約 90 秒後會自動轉回原本的 Wi-Fi。系統不會保存這組密碼。
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                          <button onClick={closeSwitchWifi} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">取消</button>
+                          <button
+                            disabled={!wifiNameOk || !wifiPasswordOk || wifiName === currentWifi}
+                            onClick={handleSwitchWifi}
+                            className="px-4 py-2 rounded text-sm font-medium bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            轉 Wi-Fi
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {showResetPassword && (
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+                      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+                        <h4 className="font-bold text-gray-800 mb-1">重設鎖定畫面密碼</h4>
+                        <p className="text-xs text-gray-500 mb-4 break-all">
+                          設備：{selectedDevice.notes || selectedDevice.device_model} ({selectedDevice.android_id})
+                        </p>
+                        <label className="block text-sm text-gray-700 mb-1" htmlFor="new-lock-password">新密碼（4 到 8 位數字）</label>
+                        <input
+                          id="new-lock-password"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          autoFocus
+                          maxLength={8}
+                          value={newLockPassword}
+                          onChange={(e) => setNewLockPassword(e.target.value.replace(/[^0-9]/g, ''))}
+                          className="w-full border border-gray-300 rounded p-2 text-lg tracking-widest font-mono focus:ring-purple-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-2">送出後設備會立即鎖定。系統不會保存這組密碼，請自行告知現場人員。</p>
+                        <div className="mt-5 flex justify-end gap-2">
+                          <button onClick={closeResetPassword} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">取消</button>
+                          <button
+                            disabled={!/^[0-9]{4,8}$/.test(newLockPassword)}
+                            onClick={handleResetLockScreenPassword}
+                            className="px-4 py-2 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            重設密碼
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <h5 className="text-sm font-bold text-gray-700 mb-2">推送並安裝應用程式</h5>
                     <div className="flex flex-col gap-2">
