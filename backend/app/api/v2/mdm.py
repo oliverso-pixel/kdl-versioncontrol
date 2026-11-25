@@ -737,39 +737,58 @@ async def device_websocket(
             elif message.get("type") == "sync_apps":
                 apps_list = message.get("apps", [])
                 # logger.info(f"📥 [MDM WS App 同步] 設備: {android_id} | 清單: {apps_list}")
-                
+
                 reported_app_ids = {app['app_id'] for app in apps_list}
-                
+                # (app_model, reported_version_code, branch) 之後用於比對是否需要派送更新
+                pending_update_checks: List[tuple] = []
+
                 for app_data in apps_list:
                     app_model = db.query(Application).filter(Application.app_id == app_data['app_id']).first()
-                    if app_model:
+                    if not app_model:
+                        continue
+
+                    branch_name = app_data.get('branch') or "stable"
+                    branch_model = db.query(Branch).filter(and_(
+                        Branch.application_id == app_model.id,
+                        Branch.branch_name == branch_name,
+                        Branch.is_active == True
+                    )).first()
+                    branch_id = branch_model.id if branch_model else None
+
+                    db.execute(
+                        text("""INSERT INTO device_installed_apps
+                                   (device_id, application_id, current_version_code, branch_id)
+                               VALUES (:d_id, :a_id, :v_code, :b_id)
+                               ON DUPLICATE KEY UPDATE
+                                   current_version_code = :v_code,
+                                   branch_id = :b_id"""),
+                        {"d_id": device.id, "a_id": app_model.id,
+                         "v_code": app_data['version_code'], "b_id": branch_id}
+                    )
+
+                    existing_config = db.execute(
+                        text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
+                        {"d_id": device.id, "a_id": app_model.app_id}
+                    ).first()
+                    if not existing_config and app_model.default_config:
                         db.execute(
-                            text("""INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
-                               VALUES (:d_id, :a_id, :v_code)
-                               ON DUPLICATE KEY UPDATE current_version_code = :v_code"""),
-                            {"d_id": device.id, "a_id": app_model.id, "v_code": app_data['version_code']}
+                            text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at)
+                               VALUES (:d_id, :a_id, :conf, NOW())"""),
+                            {"d_id": device.id, "a_id": app_model.app_id, "conf": json.dumps(app_model.default_config)}
                         )
-                        
-                        existing_config = db.execute(
-                            text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
-                            {"d_id": device.id, "a_id": app_model.app_id}
-                        ).first()
-                        if not existing_config and app_model.default_config:
-                            db.execute(
-                                text("""INSERT INTO device_app_configs (device_id, app_id, config_data, updated_at) 
-                                   VALUES (:d_id, :a_id, :conf, NOW())"""),
-                                {"d_id": device.id, "a_id": app_model.app_id, "conf": json.dumps(app_model.default_config)}
-                            )
-                
+
+                    if branch_model:
+                        pending_update_checks.append((app_model, app_data['version_code'], branch_model))
+
                 existing_installed = db.execute(
                     text("""
-                        SELECT a.app_id, dia.application_id 
+                        SELECT a.app_id, dia.application_id
                         FROM device_installed_apps dia
                         JOIN applications a ON dia.application_id = a.id
                         WHERE dia.device_id = :d_id
                     """), {"d_id": device.id}
                 ).fetchall()
-                
+
                 for row in existing_installed:
                     if row.app_id not in reported_app_ids:
                         db.execute(
@@ -783,6 +802,34 @@ async def device_websocket(
                         logger.info(f"🗑️ [MDM WS App 卸載] 設備 {android_id} 已移除 App: {row.app_id}，相關設定已清除")
 
                 db.commit()
+
+                # 版本落差補推：僅對 latest version 標記 force_update=True 的 App 自動派送 AC_app_install。
+                # queue_or_send_command 預設 dedup=True，相同 (device, action, target_app) 的舊 pending 會被作廢。
+                for app_model, reported_vc, branch_model in pending_update_checks:
+                    latest = db.query(Version).filter(and_(
+                        Version.application_id == app_model.id,
+                        Version.branch_id == branch_model.id,
+                        Version.is_active == True
+                    )).order_by(Version.version_code.desc()).first()
+                    if not latest:
+                        continue
+                    if reported_vc >= latest.version_code:
+                        continue
+                    if not latest.force_update:
+                        continue
+
+                    payload = {
+                        "task_id": f"sync_{int(get_hkt_now().timestamp()*1000)}_{device.id}_{app_model.id}",
+                        "action": "AC_app_install",
+                        "target_app": app_model.app_id,
+                        "branch_name": branch_model.branch_name,
+                        "version_code": latest.version_code,
+                        "force_update": True,
+                    }
+                    await queue_or_send_command(db, device, payload)
+                    logger.info(f"🚀 [sync_apps 補推] {android_id} | {app_model.app_id} "
+                                f"{reported_vc} → {latest.version_code} (branch={branch_model.branch_name})")
+
                 await websocket.send_json({"type": "sync_apps_ack", "status": "success"})
 
             elif message.get("type") == "sync_configs":
@@ -857,11 +904,16 @@ async def device_websocket(
                     db.add(update_log)
                     
                     if update_type == "install" and status == "success":
+                        _branch_id = version.branch_id if version else None
                         db.execute(text("""
-                            INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
-                            VALUES (:d_id, :a_id, :v_code)
-                            ON DUPLICATE KEY UPDATE current_version_code = :v_code
-                        """), {"d_id": device.id, "a_id": app_model.id, "v_code": version_code})
+                            INSERT INTO device_installed_apps
+                                (device_id, application_id, current_version_code, branch_id)
+                            VALUES (:d_id, :a_id, :v_code, :b_id)
+                            ON DUPLICATE KEY UPDATE
+                                current_version_code = :v_code,
+                                branch_id = COALESCE(:b_id, branch_id)
+                        """), {"d_id": device.id, "a_id": app_model.id,
+                               "v_code": version_code, "b_id": _branch_id})
                         
                         existing_config = db.execute(
                             text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),

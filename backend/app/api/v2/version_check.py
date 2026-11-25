@@ -130,11 +130,16 @@ async def report_updated_v2(
     db.add(update_log)
     
     from sqlalchemy import text
+    _branch_id = version.branch_id if version else None
     db.execute(text("""
-        INSERT INTO device_installed_apps (device_id, application_id, current_version_code) 
-        VALUES (:d_id, :a_id, :v_code)
-        ON DUPLICATE KEY UPDATE current_version_code = :v_code
-    """), {"d_id": device.id, "a_id": app.id, "v_code": request.version_code})
+        INSERT INTO device_installed_apps
+            (device_id, application_id, current_version_code, branch_id)
+        VALUES (:d_id, :a_id, :v_code, :b_id)
+        ON DUPLICATE KEY UPDATE
+            current_version_code = :v_code,
+            branch_id = COALESCE(:b_id, branch_id)
+    """), {"d_id": device.id, "a_id": app.id,
+           "v_code": request.version_code, "b_id": _branch_id})
 
     existing_config = db.execute(
         text("SELECT id FROM device_app_configs WHERE device_id = :d_id AND app_id = :a_id"),
