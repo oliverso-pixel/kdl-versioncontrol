@@ -1,6 +1,6 @@
 // frontend/src/components/Devices/DeviceMonitoring.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation, Clock, Lock, Wifi } from 'lucide-react';
+import { Search, Smartphone, Battery, MapPin, Key, Cpu, RotateCcw, DownloadCloud, Settings as SettingsIcon, History, Volume2, VolumeX, Edit, ShieldOff, Shield, Trash2, Power, Navigation, Clock, Lock, Wifi, Database } from 'lucide-react';
 import api from '../../services/api';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -18,9 +18,24 @@ const LOCATION_SOURCE_LABELS = {
 
 // MDMApp Domain 預設環境 (與 MDMApp/.../data/PrefsManager.kt 的 PRO_* / DEV_* 對齊)
 const MDM_APP_ID = 'com.kowloondairy.mdmapp';
+const TEST_APP_ID = 'com.example.test';
 const DOMAIN_PRESETS = {
   pro: { api_domain: 'http://10.10.205.205:5072', ws_domain: 'ws://10.10.205.205:5072' },
   dev: { api_domain: 'http://192.9.204.144:5072', ws_domain: 'ws://192.9.204.144:5072' },
+};
+
+// Queries offered per target_app in the get_app_data modal. Keys match the
+// MDMApp handler's query names (service/MdmForegroundService.kt get_app_data).
+const GET_APP_DATA_QUERIES = {
+  [MDM_APP_ID]: [
+    { value: 'status_logs_recent', label: 'status_logs_recent（最近 N 筆狀態）', hasArg: true, argPlaceholder: 'limit (預設 50)' },
+    { value: 'status_logs_unsynced', label: 'status_logs_unsynced（未同步筆數與摘要）', hasArg: false },
+    { value: 'ws_outbox_summary', label: 'ws_outbox_summary（WS 離線佇列數）', hasArg: false },
+  ],
+  [TEST_APP_ID]: [
+    { value: 'config_snapshot', label: 'config_snapshot（目前所有 config entries）', hasArg: false },
+    { value: 'recent_events', label: 'recent_events（最近 N 筆事件日誌）', hasArg: true, argPlaceholder: 'limit (預設 50)' },
+  ],
 };
 
 
@@ -65,6 +80,15 @@ const DeviceMonitoringV2 = () => {
   const [showSwitchWifi, setShowSwitchWifi] = useState(false);
   const [wifiName, setWifiName] = useState('');
   const [wifiPassword, setWifiPassword] = useState('')
+
+  // get_app_data modal state
+  const [showGetAppData, setShowGetAppData] = useState(false);
+  const [getDataTarget, setGetDataTarget] = useState(MDM_APP_ID);
+  const [getDataQuery, setGetDataQuery] = useState('status_logs_recent');
+  const [getDataArg, setGetDataArg] = useState('');
+  const [getDataBusy, setGetDataBusy] = useState(false);
+  const [getDataResult, setGetDataResult] = useState(null);
+  const [getDataError, setGetDataError] = useState(null);
   
   useEffect(() => {
     fetchDevices();
@@ -280,6 +304,77 @@ const DeviceMonitoringV2 = () => {
       const data = err.response?.data || {};
       alert(`❌ 重設失敗：${data.detail || data.message || '設備可能處於離線狀態'}`);
     }
+  };
+
+  // get_app_data：發送指令，然後輪詢 command-result 直到裝置回報或超時
+  const openGetAppData = () => {
+    setGetDataTarget(MDM_APP_ID);
+    setGetDataQuery('status_logs_recent');
+    setGetDataArg('');
+    setGetDataResult(null);
+    setGetDataError(null);
+    setGetDataBusy(false);
+    setShowGetAppData(true);
+  };
+  const closeGetAppData = () => {
+    setShowGetAppData(false);
+  };
+  const handleGetAppData = async () => {
+    if (!selectedDevice) return;
+    setGetDataBusy(true);
+    setGetDataResult(null);
+    setGetDataError(null);
+    const taskId = `getdata_${Date.now()}`;
+    const payload = {
+      action: 'get_app_data',
+      task_id: taskId,
+      target_app: getDataTarget,
+      query: getDataQuery,
+    };
+    if (getDataArg.trim()) payload.query_arg = getDataArg.trim();
+    try {
+      await api.sendDeviceCommandV2(selectedDevice.android_id, payload);
+    } catch (err) {
+      setGetDataBusy(false);
+      setGetDataError(`指令送出失敗：${err?.response?.data?.detail || err?.message || '未知'}`);
+      return;
+    }
+    // 輪詢 device_command_results：get_app_data 成功回報後最多會寫兩筆 row：
+    //   (a) reportData(): result_data = 查詢結果本身（無 status 欄位）
+    //   (b) reportCommandResult(): result_data = { status: "completed"/"failed", msg }
+    // 送出時那一筆 (status="sent"/"offline_failed") 不算回報，要過濾掉。
+    // 成功判定：至少出現其中一筆 (a) 或 (b) status==completed/failed。
+    const started = Date.now();
+    const TIMEOUT_MS = 20_000;
+    const poll = async () => {
+      try {
+        const resp = await api.getDeviceCommandResult(selectedDevice.android_id, taskId);
+        const results = resp?.results || [];
+        const replies = results.filter((r) => {
+          const s = r.result_data?.status;
+          return s !== 'sent' && s !== 'offline_failed';
+        });
+        const dataRow = replies.find((r) => r.result_data?.status === undefined);
+        const statusRow = replies.find((r) => {
+          const s = r.result_data?.status;
+          return s === 'completed' || s === 'failed';
+        });
+        if (dataRow || statusRow) {
+          setGetDataResult({ dataRow, statusRow });
+          setGetDataBusy(false);
+          return;
+        }
+      } catch (err) {
+        // 單次失敗不中斷輪詢，直到 timeout
+      }
+      if (Date.now() - started >= TIMEOUT_MS) {
+        setGetDataBusy(false);
+        setGetDataError('裝置在 20 秒內沒有回報，稍後可再開一次此 Modal 重新查詢同一 task。');
+        return;
+      }
+      setTimeout(poll, 1_000);
+    };
+    setTimeout(poll, 1_000);
   };
 
   // --- CRUD 操作邏輯 ---
@@ -627,12 +722,19 @@ const DeviceMonitoringV2 = () => {
                       <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_play_sound')} className={`bg-yellow-50 text-yellow-700 hover:bg-yellow-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-yellow-200 shadow-sm transition ${btnDisabledClass}`}>
                         <Volume2 className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">播放聲音</span>
                       </button>
-                      <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_stop_sound')} className={`bg-emerald-50 text-emerald-700 hover:bg-emerald-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-emerald-200 shadow-sm transition col-span-2 lg:col-span-1 ${btnDisabledClass}`}>
+                      <button disabled={!isOnline} onClick={() => handleRemoteCommand('DC_stop_sound')} className={`bg-emerald-50 text-emerald-700 hover:bg-emerald-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-emerald-200 shadow-sm transition ${btnDisabledClass}`}>
                         <VolumeX className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">停止聲音</span>
                       </button>
-                    <button 
-                      disabled={!isOnline} 
-                      onClick={() => handleRemoteCommand('DC_emergency_release', { secret: "5HVQIGH2zJHr6FTFnBoUEzzZi52ZU2dM" })} 
+                      <button
+                        disabled={!isOnline}
+                        onClick={openGetAppData}
+                        className={`bg-teal-50 text-teal-700 hover:bg-teal-100 p-4 rounded-[1.5rem] flex flex-col items-center justify-center border border-teal-200 shadow-sm transition ${btnDisabledClass}`}
+                      >
+                        <Database className="w-6 h-6 mb-2" /> <span className="text-sm font-semibold">查詢 App 資料</span>
+                      </button>
+                    <button
+                      disabled={!isOnline}
+                      onClick={() => handleRemoteCommand('DC_emergency_release', { secret: "5HVQIGH2zJHr6FTFnBoUEzzZi52ZU2dM" })}
                       className={`bg-orange-50 text-orange-700 hover:bg-orange-100 p-3 rounded flex flex-col items-center justify-center border border-orange-200 transition ${btnDisabledClass}`}
                     >
                       <span className="text-xl mb-1">🚨</span>
@@ -722,6 +824,126 @@ const DeviceMonitoringV2 = () => {
                       </div>
                     </div>
                   )}
+
+                  {showGetAppData && (() => {
+                    const queries = GET_APP_DATA_QUERIES[getDataTarget] || [];
+                    const activeQuery = queries.find((q) => q.value === getDataQuery) || queries[0];
+                    return (
+                      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4">
+                        <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+                          <h4 className="font-bold text-gray-800 mb-1">查詢 App 資料 (get_app_data)</h4>
+                          <p className="text-xs text-gray-500 mb-4 break-all">
+                            設備：{selectedDevice.notes || selectedDevice.device_model} ({selectedDevice.android_id})
+                          </p>
+
+                          <label className="block text-sm text-gray-700 mb-1">目標 App</label>
+                          <select
+                            value={getDataTarget}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              setGetDataTarget(next);
+                              const first = GET_APP_DATA_QUERIES[next]?.[0]?.value || '';
+                              setGetDataQuery(first);
+                              setGetDataArg('');
+                              setGetDataResult(null);
+                              setGetDataError(null);
+                            }}
+                            disabled={getDataBusy}
+                            className="w-full border border-gray-300 rounded p-2 text-sm focus:ring-teal-500"
+                          >
+                            <option value={MDM_APP_ID}>MDMApp 自己 ({MDM_APP_ID})</option>
+                            <option value={TEST_APP_ID}>TestApp ({TEST_APP_ID})</option>
+                          </select>
+
+                          <label className="block text-sm text-gray-700 mb-1 mt-3">查詢類型</label>
+                          <select
+                            value={getDataQuery}
+                            onChange={(e) => {
+                              setGetDataQuery(e.target.value);
+                              setGetDataArg('');
+                              setGetDataResult(null);
+                              setGetDataError(null);
+                            }}
+                            disabled={getDataBusy}
+                            className="w-full border border-gray-300 rounded p-2 text-sm focus:ring-teal-500"
+                          >
+                            {queries.map((q) => (
+                              <option key={q.value} value={q.value}>{q.label}</option>
+                            ))}
+                          </select>
+
+                          {activeQuery?.hasArg && (
+                            <>
+                              <label className="block text-sm text-gray-700 mb-1 mt-3">參數 (query_arg)</label>
+                              <input
+                                type="text"
+                                value={getDataArg}
+                                onChange={(e) => setGetDataArg(e.target.value)}
+                                placeholder={activeQuery.argPlaceholder || ''}
+                                disabled={getDataBusy}
+                                className="w-full border border-gray-300 rounded p-2 text-sm font-mono focus:ring-teal-500"
+                              />
+                            </>
+                          )}
+
+                          <div className="mt-4 flex justify-end gap-2">
+                            <button
+                              onClick={closeGetAppData}
+                              disabled={getDataBusy}
+                              className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              關閉
+                            </button>
+                            <button
+                              onClick={handleGetAppData}
+                              disabled={getDataBusy || !getDataQuery}
+                              className="px-4 py-2 rounded text-sm font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+                            >
+                              {getDataBusy ? '查詢中…' : '送出'}
+                            </button>
+                          </div>
+
+                          {getDataError && (
+                            <div className="mt-4 bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded">
+                              {getDataError}
+                            </div>
+                          )}
+                          {getDataResult && (
+                            <div className="mt-4 space-y-3">
+                              {getDataResult.statusRow && (
+                                <div className={`text-xs p-2 rounded border ${
+                                  getDataResult.statusRow.result_data?.status === 'completed'
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-red-50 border-red-200 text-red-700'
+                                }`}>
+                                  status={getDataResult.statusRow.result_data?.status}
+                                  {getDataResult.statusRow.result_data?.msg
+                                    ? ` · ${getDataResult.statusRow.result_data.msg}` : ''}
+                                </div>
+                              )}
+                              {getDataResult.dataRow && (
+                                <div>
+                                  <div className="text-xs text-gray-500 mb-1">
+                                    action={getDataResult.dataRow.action} · task_id={getDataResult.dataRow.task_id} ·
+                                    created_at={getDataResult.dataRow.created_at}
+                                  </div>
+                                  <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded max-h-[40vh] overflow-auto whitespace-pre-wrap break-all">
+{JSON.stringify(getDataResult.dataRow.result_data, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {!getDataResult.dataRow && getDataResult.statusRow?.result_data?.status === 'failed' && (
+                                <p className="text-xs text-gray-500">沒有收到資料 row。可能是指令失敗、或 target_app 未安裝/未回應。</p>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-500 mt-3">
+                            說明：MDMApp 自己的查詢會直接讀 Room DB。TestApp 的查詢會由 MDMApp 轉發 broadcast 給 TestApp 讀其 Room DB，再回送到後端 <code>device_command_results</code>。上限等待 20 秒。
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <h5 className="text-sm font-bold text-gray-700 mb-2">推送並安裝應用程式</h5>
                     <div className="flex flex-col gap-2">

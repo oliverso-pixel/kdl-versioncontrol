@@ -1106,6 +1106,54 @@ async def send_admin_command(
         
     return {"status": "command_sent", "task_id": task_id}
 
+@router.get("/admin/devices/{android_id}/command-result/{task_id}")
+async def get_device_command_result(
+    android_id: str,
+    task_id: str,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(verify_token),
+):
+    """Return every device_command_results row for one task_id, newest first.
+
+    Used by the admin UI to poll for the outcome of an async command (e.g.
+    get_app_data): the first row inserted at send time has status "sent" or
+    "offline_failed"; rows added later carry the actual reply payload under
+    `result_data`. Returns an empty list until the device replies.
+    """
+    device = db.query(Device).filter(Device.android_id == android_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    rows = db.execute(text("""
+        SELECT id, task_id, action, result_data, created_at
+        FROM device_command_results
+        WHERE device_id = :d_id AND task_id = :t_id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20
+    """), {"d_id": device.id, "t_id": task_id}).fetchall()
+
+    def _parse(raw):
+        if raw is None:
+            return None
+        if isinstance(raw, (dict, list)):
+            return raw
+        try:
+            return json.loads(raw)
+        except Exception:
+            return raw
+
+    results = [
+        {
+            "id": r[0],
+            "task_id": r[1],
+            "action": r[2],
+            "result_data": _parse(r[3]),
+            "created_at": r[4].isoformat() if r[4] is not None else None,
+        }
+        for r in rows
+    ]
+    return {"task_id": task_id, "count": len(results), "results": results}
+
 # ----------------- Enterprise App Store Endpoints ----------------- #
 
 @router.get("/store/apps")

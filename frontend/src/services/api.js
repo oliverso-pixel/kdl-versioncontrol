@@ -283,6 +283,9 @@ class ApiService {
       method: 'POST', body: JSON.stringify(payload)
     });
   }
+  async getDeviceCommandResult(androidId, taskId) {
+    return this.request(`/api/v2/admin/devices/${androidId}/command-result/${encodeURIComponent(taskId)}`);
+  }
   async getDeviceInstalledApps(androidId) {
     return this.request(`/api/v2/admin/devices/${androidId}/installed-apps`);
   }
